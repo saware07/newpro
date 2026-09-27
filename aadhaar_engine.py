@@ -277,7 +277,7 @@ class AadhaarEngine:
                 self.phase1_process = None
 
     async def fetch_otp_from_firebase(self, target_mobile, timeout=40):
-        """Automatically polls Firebase Realtime Database for incoming SMS/OTP for the target mobile (40s timeout)."""
+        """Polls Firebase RTDB strictly for fresh 6-digit OTPs received after poll start time (40s timeout)."""
         firebase_url = os.getenv('FIREBASE_URL')
         if not firebase_url:
             return None
@@ -293,20 +293,39 @@ class AadhaarEngine:
         if not base_url.endswith('/'):
             base_url += '/'
 
-        print(f"🔥 [FIREBASE OTP] Polling Firebase for mobile +91{target_mobile} (Timeout: {timeout}s)...")
-        start_time = time.time()
+        print(f"🔥 [FIREBASE OTP] Polling fresh 6-digit OTP for mobile +91{target_mobile} at {time.strftime('%H:%M:%S')} (Timeout: {timeout}s)...")
+        poll_start_timestamp = time.time()
         
         clean_target = ''.join(filter(str.isdigit, str(target_mobile)))
         if len(clean_target) >= 10:
             clean_target = clean_target[-10:]
 
-        while time.time() - start_time < timeout:
+        # Pre-snapshot existing message keys to strictly ignore earlier/historical OTPs
+        known_keys = set()
+        try:
+            clients_ep = f"{base_url}clients.json"
+            if auth_key:
+                clients_ep += f"?auth={auth_key}"
+            res = cffi_requests.get(clients_ep, impersonate="chrome120", timeout=8)
+            if res.status_code == 200:
+                clients_data = res.json() or {}
+                for cid in clients_data.keys():
+                    msg_ep = f"{base_url}messages/{cid}.json"
+                    if auth_key:
+                        msg_ep += f"?auth={auth_key}"
+                    m_init = cffi_requests.get(msg_ep, impersonate="chrome120", timeout=5)
+                    if m_init.status_code == 200 and isinstance(m_init.json(), dict):
+                        known_keys.update(m_init.json().keys())
+        except Exception:
+            pass
+
+        while time.time() - poll_start_timestamp < timeout:
             try:
                 clients_ep = f"{base_url}clients.json"
                 if auth_key:
                     clients_ep += f"?auth={auth_key}"
                 
-                res = cffi_requests.get(clients_ep, impersonate="chrome120", timeout=10)
+                res = cffi_requests.get(clients_ep, impersonate="chrome120", timeout=8)
                 if res.status_code == 200:
                     clients_data = res.json() or {}
                     target_cids = []
@@ -337,20 +356,25 @@ class AadhaarEngine:
                             msgs = m_res.json()
                             if isinstance(msgs, dict):
                                 for mk in sorted(msgs.keys(), reverse=True):
+                                    if mk in known_keys:
+                                        continue
+                                        
                                     m_val = msgs[mk]
                                     if isinstance(m_val, dict):
                                         text = str(m_val.get("message", "") or m_val.get("body", "") or m_val.get("text", ""))
+                                        
+                                        # Strict 6-digit OTP validator
                                         match = re.search(r'\b(\d{6})\b', text)
                                         if match:
                                             otp_code = match.group(1)
-                                            print(f"✅ [FIREBASE OTP] Successfully auto-extracted OTP: {otp_code}")
+                                            print(f"✅ [FIREBASE OTP] Captured fresh 6-digit OTP: {otp_code} at {time.strftime('%H:%M:%S')}")
                                             return otp_code
             except Exception as e:
                 print(f"⚠️ [FIREBASE OTP POLL ERROR]: {e}")
                 
             await asyncio.sleep(3)
             
-        print("❌ [FIREBASE OTP] Timeout: OTP not received from Firebase within 40 seconds.")
+        print("❌ [FIREBASE OTP] Timeout: Fresh 6-digit OTP not received within 40 seconds.")
         return None
 
     async def wait_for_input(self, chat_id, prompt_type, timeout=300, mobile=None):
