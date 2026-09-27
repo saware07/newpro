@@ -139,8 +139,6 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 import aadhaar_engine
 from aadhaar_engine import user_page_registry
-from pymongo import MongoClient
-from bson import ObjectId
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 if not TOKEN:
@@ -181,16 +179,6 @@ CHANNEL_INVITE_LINK = (os.getenv("CHANNEL_INVITE_LINK") or "").strip()
 GROUP_INVITE_LINK = (os.getenv("GROUP_INVITE_LINK") or "").strip()
 
 import stats_manager
-
-# MongoDB connection setup
-MONGO_URI = os.getenv('MONGO_URI', "mongodb+srv://thakues:thakurains@thakur2.y9dlsd5.mongodb.net/?appName=Cluster0")
-try:
-    mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
-    db = mongo_client["aadhar_bot"]
-    pdf_logs_col = db["pdf_logs"]
-except Exception as e:
-    print(f"⚠️ MongoDB init error in bot.py: {e}")
-    pdf_logs_col = None
 
 class BotExceptionHandler(telebot.ExceptionHandler):
     def handle(self, exception):
