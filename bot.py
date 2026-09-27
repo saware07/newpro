@@ -1390,13 +1390,7 @@ def handle_all(message):
                         res = cffi_requests.get(clients_endpoint, impersonate="chrome120", timeout=12)
                         if res.status_code == 200:
                             data = res.json() or {}
-                            # Relaxed device check matching the monitor report logic
-                            online_cids = [
-                                cid for cid, cdata in data.items() 
-                                if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("status") == "true" or cdata.get("online") is True or cdata.get("online") == "true")
-                            ]
-                            if not online_cids and len(data) > 0:
-                                online_cids = list(data.keys())
+                            online_cids = list(data.keys()) if isinstance(data, dict) else []
 
                             if online_cids:
                                 total_online_all += len(online_cids)
