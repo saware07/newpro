@@ -1759,12 +1759,13 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  🔴 {label} {target} unreachable: {e}")
     
-    print("🤖 Bot is now LIVE.")
+print("🤖 Bot is now LIVE.")
     
     # Infinite Polling Loop with Webhook Reset & Conflict Backoff
     while True:
         try:
-            bot.remove_webhook(drop_pending_updates=True)
+            # Clear hanging webhooks on Telegram's servers
+            bot.remove_webhook()
             time.sleep(1)
             
             bot.infinity_polling(
