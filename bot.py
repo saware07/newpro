@@ -479,7 +479,6 @@ def send_zero_credits_dashboard(chat_id, message_id=None):
     
     data = stats_manager.load_stats()
     
-    # Find user record in stats.json
     user_record = None
     for u in data.get("users", []):
         if isinstance(u, dict) and str(u.get("chat_id")) == str(chat_id):
@@ -488,11 +487,9 @@ def send_zero_credits_dashboard(chat_id, message_id=None):
             
     join_date = user_record.get("joined", "N/A") if user_record else "N/A"
     
-    # Success count
     history = data.get("cracked_history", [])
     success_count = sum(1 for r in history if str(r.get("chat_id")) == str(chat_id))
     
-    # Referred count
     referred_count = 0
     for u in data.get("users", []):
         if isinstance(u, dict):
@@ -601,7 +598,6 @@ def send_welcome(message):
             send_maintenance_notice(chat_id)
             return
 
-    # Every /start shows the 3-button force-join welcome, including owners
     send_force_join_welcome(chat_id)
 
 
@@ -610,7 +606,6 @@ def handle_start_bypass(call):
     chat_id = call.message.chat.id
     print(f"📥 [CALLBACK] start_bypass triggered for chat_id: {chat_id}")
 
-    # Answer the callback query immediately to dismiss the Telegram button spinner
     try:
         bot.answer_callback_query(call.id)
     except Exception:
@@ -619,14 +614,12 @@ def handle_start_bypass(call):
     if not enforce_user_access(chat_id, message_id=call.message.message_id):
         return
 
-    # Check credits (if paid mode)
     if stats_manager.get_bot_mode() == "paid":
         credits = stats_manager.get_user_credits(chat_id)
         if credits <= 0:
             send_zero_credits_dashboard(chat_id, message_id=call.message.message_id)
             return
 
-    # Step 3: Transition to the Mobile Verification card.
     user_states[chat_id] = {'step': 'AWAITING_MOBILE'}
     step1_text = get_ui_card(
         step_num="1",
@@ -993,14 +986,12 @@ def handle_admin_callbacks(call):
                 with open(log_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                 
-                # Fetch last 10 error lines
                 last_lines = [line.strip() for line in lines if line.strip()][-10:]
                 
                 msg_text = f"⚠️ <b>SYSTEM DIAGNOSTIC LOGS (Last {len(last_lines)})</b>\n"
                 msg_text += "━━━━━━━━━━━━━━━━━━━━━━\n"
                 
                 for line in last_lines:
-                    # Log format: [TIMESTAMP] User: FIRSTNAME (@USERNAME) [ID: CHATID] | Error: MSG
                     try:
                         timestamp_part, rest = line.split("] User: ", 1)
                         timestamp = timestamp_part.replace("[", "")
@@ -1065,7 +1056,6 @@ def handle_manual_pref_selection(call):
         except:
             bot.send_message(chat_id, msg_text, parse_mode='HTML')
     else:
-        # Male or Female selected directly -> Bypass Name and DOB steps!
         name = "Mr" if action == "Mr." else "Mrs"
         dob = None
         
@@ -1162,7 +1152,6 @@ def callback_query(call):
         return
     if call.data.startswith('admin_') or call.data.startswith('mp|') or call.data == 'refresh_zero_credits' or call.data == 'start_bypass':
         return
-    print(f"📥 [CALLBACK] Generic callback triggered: {call.data} for chat_id: {chat_id}")
     try:
         bot.answer_callback_query(call.id)
     except Exception as e:
@@ -1185,14 +1174,12 @@ def handle_profile(message):
         
     data = stats_manager.load_stats()
     
-    # Find user in users list
     user_record = None
     for u in data.get("users", []):
         if isinstance(u, dict) and u.get("chat_id") == str_chat_id:
             user_record = u
             break
             
-    # Fallback or create if not exists
     if not user_record:
         try:
             stats_manager.register_visit(chat_id, username=message.from_user.username, first_name=message.from_user.first_name)
@@ -1207,7 +1194,6 @@ def handle_profile(message):
     credits = stats_manager.get_user_credits(chat_id)
     mode = stats_manager.get_bot_mode()
     
-    # Count success cracks from history
     history = data.get("cracked_history", [])
     success_count = sum(1 for r in history if r.get("chat_id") == str_chat_id)
     
@@ -1316,7 +1302,7 @@ def perform_broadcast(message):
         try:
             bot.copy_message(chat_id=user_id, from_chat_id=admin_chat_id, message_id=message.message_id)
             success += 1
-            time.sleep(0.05) # 20 messages per second rate limiting
+            time.sleep(0.05)
         except Exception as e:
             print(f"⚠️ [BROADCAST] Failed to send to {user_id}: {e}")
             failed += 1
@@ -1343,7 +1329,6 @@ def handle_all(message):
 
     state = user_states.get(chat_id, {})
 
-    # Owner admin flows bypass membership gate
     owner_admin_steps = {
         'AWAITING_BROADCAST_MSG', 'AWAITING_ADMIN_COOLDOWN', 'AWAITING_ADMIN_MAX_CONCURRENT',
         'AWAITING_ADMIN_DEFAULT_CREDITS', 'AWAITING_ADMIN_GRANT_USER_ID', 'AWAITING_ADMIN_GRANT_AMOUNT',
@@ -1358,7 +1343,6 @@ def handle_all(message):
     state = user_states.get(chat_id, {})
     str_chat_id = str(chat_id)
     
-    # Broadcast Message Interceptor
     if state.get('step') == 'AWAITING_BROADCAST_MSG':
         text_val = message.text.strip() if message.text else ""
         if text_val.lower() == 'cancel':
@@ -1370,16 +1354,13 @@ def handle_all(message):
         user_states[chat_id] = {'step': 'IDLE'}
         bot.send_message(chat_id, "🚀 <b>Broadcast started in background...</b>\nUsers ko delivery messages report send ki jayegi.", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
         
-        # Start broadcasting in background thread
         threading.Thread(target=perform_broadcast, args=(message,), daemon=True).start()
         return
 
-    # Guard: ignore non-text messages (photos, stickers, voice notes, etc.)
     if not message.text:
         return
     text = message.text.strip()
     
-    # --- ADMIN CONFIGURATION & CREDIT SYSTEM INTERCEPTORS ---
     if state.get('step') == 'AWAITING_ADMIN_COOLDOWN':
         if text.lower() == 'cancel':
             user_states[chat_id] = {'step': 'IDLE'}
@@ -1512,15 +1493,11 @@ def handle_all(message):
         send_admin_dashboard(chat_id)
         return
 
-    # Session Cancellation Interceptor
     if text.lower() in ['/cancel', 'cancel', 'reset', '/reset']:
-        # 1. Terminate pending captcha/OTP registry locks and clear buffers
         if str_chat_id in aadhaar_engine.user_page_registry:
             aadhaar_engine.user_page_registry[str_chat_id]['value'] = '__CANCEL__'
         aadhaar_engine.buffered_inputs.pop(str_chat_id, None)
 
-            
-        # 3. Terminate active Aadhaar engines and tasks
         if str_chat_id in aadhaar_engine.active_engines:
             eng = aadhaar_engine.active_engines.pop(str_chat_id, None)
             if eng:
@@ -1530,7 +1507,6 @@ def handle_all(message):
             try: aadhaar_engine.active_tasks.remove(str_chat_id)
             except: pass
             
-        # 4. Reset User States to IDLE
         user_states[chat_id] = {'step': 'IDLE'}
         
         cancel_text = (
@@ -1543,7 +1519,6 @@ def handle_all(message):
         send_welcome_dashboard(chat_id)
         return
     
-    # Priority Override: If input is a Target Mobile Number or start command with mobile number
     import re
     
     is_group = chat_id < 0
@@ -1552,13 +1527,10 @@ def handle_all(message):
     extracted_target = None
     
     if is_group:
-        # In groups, we ONLY trigger if it starts with /aadhaar or /aadhar
         if starts_with_cmd:
-            # Remove the command prefix
             cmd_len = len('/aadhaar') if text.lower().startswith('/aadhaar') else len('/aadhar')
             number_part = text[cmd_len:].strip()
             
-            # Clean and extract 10-digit number from number_part
             clean_num = re.sub(r'\D', '', number_part)
             if len(clean_num) == 10 and clean_num[0] in '6789':
                 extracted_target = clean_num
@@ -1567,7 +1539,6 @@ def handle_all(message):
                 if possible_target[0] in '6789':
                     extracted_target = possible_target
     else:
-        # In private chat, we trigger if it starts with command OR contains a number directly
         if starts_with_cmd:
             cmd_len = len('/aadhaar') if text.lower().startswith('/aadhaar') else len('/aadhar')
             number_part = text[cmd_len:].strip()
@@ -1579,7 +1550,6 @@ def handle_all(message):
                 if possible_target[0] in '6789':
                     extracted_target = possible_target
         else:
-            # Directly sent number in private chat
             clean_num = re.sub(r'\D', '', text)
             if len(clean_num) == 10 and clean_num[0] in '6789':
                 extracted_target = clean_num
@@ -1589,17 +1559,14 @@ def handle_all(message):
                     extracted_target = possible_target
 
     if extracted_target:
-        # Check credits before pre-warming (if paid mode)
         if stats_manager.get_bot_mode() == "paid":
             credits = stats_manager.get_user_credits(chat_id)
             if credits <= 0:
                 send_zero_credits_dashboard(chat_id)
                 return
 
-        # Check if record is already cracked in history
         cached_record = stats_manager.find_cracked_record(extracted_target)
         if cached_record:
-            # Deduct credit if bot mode is paid
             if stats_manager.get_bot_mode() == "paid":
                 stats_manager.deduct_user_credit(chat_id)
                 
@@ -1619,7 +1586,6 @@ def handle_all(message):
             )
             bot.send_message(chat_id, cached_text, parse_mode='HTML')
             
-            # Try to send the unlocked PDF copy if it exists in the cracked directory
             try:
                 safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
                 safe_uid = uid.replace(' ', '')
@@ -1635,11 +1601,9 @@ def handle_all(message):
 
         print(f"🔄 Override: Preempting tasks for {chat_id} -> starting fresh target {extracted_target}")
         
-        # 1. Clear prompt/OTP registry lock and buffer
         aadhaar_engine.user_page_registry.pop(str_chat_id, None)
         aadhaar_engine.buffered_inputs.pop(str_chat_id, None)
         
-        # 2. Terminate old Aadhaar Engine processes if active
         if str_chat_id in aadhaar_engine.active_engines:
             eng = aadhaar_engine.active_engines.pop(str_chat_id, None)
             if eng:
@@ -1649,10 +1613,8 @@ def handle_all(message):
             try: aadhaar_engine.active_tasks.remove(str_chat_id)
             except: pass
             
-        # Pre-warm Aadhaar portals early (both retrieve EID and download Aadhaar)
         aadhaar_engine.prewarm_engine(bot, chat_id, extracted_target)
             
-        # 3. Present prefix selection buttons immediately
         markup = types.InlineKeyboardMarkup(row_width=2)
         btn_male = types.InlineKeyboardButton("👨 Male", callback_data="mp|Mr.")
         btn_female = types.InlineKeyboardButton("👩 Female", callback_data="mp|Mrs.")
@@ -1672,7 +1634,6 @@ def handle_all(message):
         user_states[chat_id] = {'step': 'AWAITING_MANUAL_PREF_SELECTION', 'num': extracted_target}
         return
 
-    # Check for Captcha/OTP Input from Engine
     if str_chat_id in aadhaar_engine.user_page_registry and aadhaar_engine.user_page_registry[str_chat_id].get('value') is None:
         aadhaar_engine.user_page_registry[str_chat_id]['value'] = text
         if chat_id < 0:
@@ -1680,14 +1641,11 @@ def handle_all(message):
             except: pass
         return
     elif state.get('step') == 'PROCESSING':
-        # Buffer this message as it might be an OTP sent during the race window before wait_for_input starts
         aadhaar_engine.buffered_inputs[str_chat_id] = text
         if chat_id < 0:
             try: bot.delete_message(chat_id, message.message_id)
             except: pass
         return
-
-
 
     if state.get('step') == 'AWAITING_NAME':
         prefix = state.get('prefix', '')
@@ -1713,19 +1671,15 @@ def handle_all(message):
 async def execute_and_reset(chat_id, name, num, dob, user_info=None):
     task_started = False
     try:
-        # Check permissions/limits right before executing the task
         is_admin = is_owner(chat_id)
         
-        # Check credits one final time (if paid mode)
         if stats_manager.get_bot_mode() == "paid":
             credits = stats_manager.get_user_credits(chat_id)
             if credits <= 0:
                 send_zero_credits_dashboard(chat_id)
-                # Reset user state back to IDLE
                 user_states[chat_id] = {'step': 'IDLE'}
                 return
                     
-        # Check global cooldown for non-admins
         if not is_admin:
             allowed, remaining_seconds = stats_manager.check_global_cooldown()
             if not allowed:
@@ -1736,12 +1690,10 @@ async def execute_and_reset(chat_id, name, num, dob, user_info=None):
                     f"🕒 Kripya <b>{remaining_seconds} seconds</b> ke baad phir se try karein."
                 )
                 bot.send_message(chat_id, cooldown_msg, parse_mode='HTML')
-                # Reset user state back to IDLE
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
                 
-        # If allowed and user is not admin, activate the global cooldown
         if not is_admin:
             stats_manager.update_global_run_time()
 
@@ -1754,18 +1706,15 @@ async def execute_and_reset(chat_id, name, num, dob, user_info=None):
     finally:
         if task_started:
             user_states[chat_id] = {'step': 'IDLE'}
-            # Show welcome back dashboard so user isn't left hanging after completion
             try:
                 send_welcome_dashboard(chat_id)
             except: pass
 
 
 def cleanup_temp_files():
-    """Sweeps and deletes any leftover temporary files or browser caches on startup to optimize storage."""
     print("🧹 [CLEANUP] Sweeping residual temporary files...")
     import shutil
     
-    # 1. Clean temp captcha files from project root
     prefixes = ['temp_captcha_', 'cap_ui_', 'cap_um_']
     for file in os.listdir(BASE_DIR):
         if any(file.startswith(prefix) for prefix in prefixes):
@@ -1774,12 +1723,10 @@ def cleanup_temp_files():
                 print(f"🗑️ Cleaned temp file: {file}")
             except: pass
 
-    # 2. Ensure cracked_aadhar output folder exists (recreate if deleted)
     cracked_dir = os.path.join(BASE_DIR, 'cracked_aadhar')
     os.makedirs(cracked_dir, exist_ok=True)
     print(f"📁 [CLEANUP] Output folder ready: {cracked_dir}")
             
-    # 3. Clean temporary user data profile folders to save disk space
     bulk_dir = os.path.join(BASE_DIR, 'BULK_USER_DATA')
     if os.path.exists(bulk_dir):
         try:
@@ -1788,7 +1735,6 @@ def cleanup_temp_files():
         except: pass
 
 if __name__ == "__main__":
-    # Clean leftover logs, captures, or profiles on startup
     cleanup_temp_files()
     
     loop = asyncio.new_event_loop()
@@ -1815,12 +1761,23 @@ if __name__ == "__main__":
     
     print("🤖 Bot is now LIVE.")
     
-
-
-    # Infinite Polling Loop
+    # Infinite Polling Loop with Webhook Reset & Conflict Backoff
     while True:
         try:
-            bot.infinity_polling(timeout=60, long_polling_timeout=60, allowed_updates=['message', 'callback_query'])
+            bot.remove_webhook(drop_pending_updates=True)
+            time.sleep(1)
+            
+            bot.infinity_polling(
+                timeout=60, 
+                long_polling_timeout=60, 
+                allowed_updates=['message', 'callback_query'],
+                skip_pending=True
+            )
         except Exception as e:
-            print(f"⚠️ Polling Exception: {e}")
-            time.sleep(5)
+            err_str = str(e)
+            if "409" in err_str or "Conflict" in err_str:
+                print(f"⚠️ [CONFLICT 409]: Another instance is active or Telegram socket is releasing. Backing off for 15s...")
+                time.sleep(15)
+            else:
+                print(f"⚠️ Polling Exception: {e}")
+                time.sleep(5)
