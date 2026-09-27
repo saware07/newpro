@@ -1650,23 +1650,23 @@ if __name__ == "__main__":
     
     print("🤖 Bot is now LIVE.")
     
-    # Infinite Polling Loop with Webhook Reset & Conflict Backoff
+    # Optimized Fast-Response Polling Loop
     while True:
         try:
             bot.remove_webhook()
-            time.sleep(1)
+            time.sleep(0.5)
             
             bot.infinity_polling(
-                timeout=60, 
-                long_polling_timeout=60, 
+                timeout=20, 
+                long_polling_timeout=20, 
                 allowed_updates=['message', 'callback_query'],
                 skip_pending=True
             )
         except Exception as e:
             err_str = str(e)
             if "409" in err_str or "Conflict" in err_str:
-                print(f"⚠️ [CONFLICT 409]: Another instance is active or Telegram socket is releasing. Backing off for 15s...")
-                time.sleep(15)
+                print(f"⚠️ [CONFLICT 409]: Releasing socket conflict. Quick retry in 3s...")
+                time.sleep(3)  # Reduced from 15s to 3s for faster recovery
             else:
                 print(f"⚠️ Polling Exception: {e}")
-                time.sleep(5)
+                time.sleep(2)
