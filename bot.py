@@ -1464,7 +1464,7 @@ def handle_all(message):
                 send_zero_credits_dashboard(chat_id)
                 return
 
-        # 🔍 STRICT PER-USER CHAT HISTORY CHECK (Replaces global cracked history check)
+        # 🔍 STRICT PER-USER CHAT HISTORY CHECK
         existing_log = db.pdf_logs.find_one({
             "user_id": str(chat_id),
             "eid_or_mobile": extracted_target,
