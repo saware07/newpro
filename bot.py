@@ -38,7 +38,6 @@ def check_startup_requirements():
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
-    # 1. Check Python Package Modules
     print("\n📦 Verifying Python Package Dependencies:")
     print("------------------------------------------------------------")
     missing_packages = []
@@ -50,8 +49,6 @@ def check_startup_requirements():
             print(f"  🔴 {pip_name:<20} -> MISSING")
             missing_packages.append(pip_name)
             
-
-    # 3. Check Vital Files and Folders
     print("\n📂 Verifying Core Codebase Files:")
     print("------------------------------------------------------------")
     missing_files = []
@@ -63,7 +60,6 @@ def check_startup_requirements():
             print(f"  🔴 {file_name:<22} -> MISSING ({desc})")
             missing_files.append(file_name)
             
-    # 4. Check Environment Configuration
     print("\n🔑 Verifying Environment Settings (.env):")
     print("------------------------------------------------------------")
     env_path = os.path.join(base_dir, ".env")
@@ -123,31 +119,10 @@ def check_startup_requirements():
     
     if has_errors:
         print("❌ STARTUP ERROR: Critical requirements are missing!")
-        print("👇 Please execute the following commands to resolve the errors:\n")
-        
-        if len(missing_packages) > 0:
-            print("👉 1. Install missing Python dependencies:")
-            print(f"   Command: pip install {' '.join(missing_packages)}\n")
-            
-        if len(missing_files) > 0:
-            print("👉 2. Restore missing core codebase files:")
-            for f in missing_files:
-                print(f"   - {f} ({REQUIRED_FILES[f]})")
-            print("   Please check your repository to restore these files.\n")
-            
-        if not env_exists or not token_found or not mongo_found:
-            print("👉 3. Configure environment settings:")
-            print("   Create a '.env' file in the bot root folder containing:")
-            print("   TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN_HERE")
-            print("   ADMIN_IDS=ADMIN_ID_1,ADMIN_ID_2")
-            print("   MONGODB_URI=YOUR_MONGODB_CONNECTION_STRING\n")
-            
-        print("============================================================")
         sys.exit(1)
     else:
         print("✨ All requirements are met! Starting Aadhaar Telegram Bot...\n")
 
-# Run the checker before importing external dependencies
 check_startup_requirements()
 # --- REQUIREMENT CHECKER END ---
 
@@ -158,13 +133,10 @@ import time
 from telebot import types, apihelper
 from dotenv import load_dotenv
 
-# Load environmental variables from the project .env (not the current working directory)
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"), override=True)
 
-# Force all spawned python subprocesses to use UTF-8 output encoding
 os.environ['PYTHONIOENCODING'] = 'utf-8'
 
-# Import updated engine
 import aadhaar_engine
 from aadhaar_engine import user_page_registry
 
@@ -177,7 +149,6 @@ DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME', 'mr_pbail')
 
 ADMIN_IDS_RAW = os.getenv('ADMIN_IDS')
 if not ADMIN_IDS_RAW:
-    print("⚠️ Warning: ADMIN_IDS is not configured in .env. Admin dashboard features will be unavailable.")
     ADMIN_IDS = []
 else:
     ADMIN_IDS = [int(x.strip()) for x in ADMIN_IDS_RAW.split(',') if x.strip().isdigit()]
@@ -207,25 +178,19 @@ FORCE_JOIN_TARGETS = REQUIRED_CHANNELS + REQUIRED_GROUPS
 CHANNEL_INVITE_LINK = (os.getenv("CHANNEL_INVITE_LINK") or "").strip()
 GROUP_INVITE_LINK = (os.getenv("GROUP_INVITE_LINK") or "").strip()
 
-if not FORCE_JOIN_TARGETS:
-    print("⚠️ Warning: REQUIRED_CHANNEL_IDS / REQUIRED_GROUP_IDS not configured. Force join will be bypassed.")
-
 import stats_manager
 
-# Custom Exception Handler to prevent worker thread crashes from bubbling to infinity_polling
 class BotExceptionHandler(telebot.ExceptionHandler):
     def handle(self, exception):
         print(f"⚠️ [TELEBOT EXCEPTION] Handled seamlessly: {exception}")
         if "getaddrinfo failed" in str(exception) or "NewConnectionError" in str(exception) or "Max retries exceeded" in str(exception):
-            time.sleep(5) # Prevent log spam if internet connection drops
+            time.sleep(5)
         return True
 
-# Prevent idle socket timeouts by refreshing the HTTP session periodically
 apihelper.SESSION_TIME_TO_LIVE = 5 * 60
 
 bot = telebot.TeleBot(TOKEN, parse_mode='HTML', exception_handler=BotExceptionHandler())
 
-# Safe wrappers for sending and editing messages to auto-retry on ConnectionResetError
 orig_send_message = bot.send_message
 orig_edit_message_text = bot.edit_message_text
 
@@ -237,9 +202,7 @@ def safe_send_message(*args, **kwargs):
         except Exception as e:
             err_str = str(e)
             if "blocked by the user" in err_str or "Forbidden" in err_str or "chat not found" in err_str or "403" in err_str:
-                print(f"🚫 [TELEGRAM SEND FORBIDDEN]: Bot is blocked by user or chat not found. Skipping retries.")
                 raise e
-            print(f"⚠️ [TELEGRAM SEND RETRY {attempt+1}/3]: {e}")
             if attempt == 2:
                 raise e
             time.sleep(1)
@@ -252,12 +215,9 @@ def safe_edit_message_text(*args, **kwargs):
         except Exception as e:
             err_str = str(e)
             if "message is not modified" in err_str:
-                print("📝 [TELEGRAM EDIT]: Message is not modified. Suppressing error.")
                 return True
             if "blocked by the user" in err_str or "Forbidden" in err_str or "chat not found" in err_str or "403" in err_str:
-                print(f"🚫 [TELEGRAM EDIT FORBIDDEN]: Bot is blocked by user or chat not found. Skipping retries.")
                 raise e
-            print(f"⚠️ [TELEGRAM EDIT RETRY {attempt+1}/3]: {e}")
             if attempt == 2:
                 raise e
             time.sleep(1)
@@ -274,7 +234,6 @@ def safe_send_photo(*args, **kwargs):
         try:
             return orig_send_photo(*args, **kwargs)
         except Exception as e:
-            print(f"⚠️ [TELEGRAM SEND PHOTO RETRY {attempt+1}/3]: {e}")
             if attempt == 2:
                 raise e
             time.sleep(2)
@@ -285,7 +244,6 @@ def safe_send_document(*args, **kwargs):
         try:
             return orig_send_document(*args, **kwargs)
         except Exception as e:
-            print(f"⚠️ [TELEGRAM SEND DOCUMENT RETRY {attempt+1}/3]: {e}")
             if attempt == 2:
                 raise e
             time.sleep(2)
@@ -293,10 +251,9 @@ def safe_send_document(*args, **kwargs):
 bot.send_photo = safe_send_photo
 bot.send_document = safe_send_document
 
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 user_states = {}
-loop = None # Global loop reference
+loop = None
 
 def is_owner(chat_id):
     return chat_id in ADMIN_IDS
@@ -309,21 +266,17 @@ def is_member_of(chat_id, target_chat):
         err_msg = str(e).lower()
         if "user not found" in err_msg or "user_not_participant" in err_msg:
             return False
-        print(f"⚠️ [JOIN CHECK] Could not verify membership for {target_chat}: {e}")
         return False
-    except Exception as e:
-        print(f"⚠️ [JOIN CHECK] Failed to check {target_chat} for user {chat_id}: {e}")
+    except Exception:
         return False
 
 def check_user_joined(chat_id):
-    """Checks channel + group membership for every private user, including owners."""
     if chat_id < 0:
         return True
     if not FORCE_JOIN_TARGETS:
         return True
     for target in FORCE_JOIN_TARGETS:
         if not is_member_of(chat_id, target):
-            print(f"🚫 [JOIN CHECK] user {chat_id} is not a member of {target}")
             return False
     return True
 
@@ -346,13 +299,11 @@ def _get_chat_invite_url(chat_id, fallback_url=None, fallback_title="Community")
         else:
             try:
                 url = bot.export_chat_invite_link(chat_id)
-            except Exception as ex:
-                print(f"⚠️ [JOIN CHECK] Export invite link failed for {chat_id}: {ex}")
+            except Exception:
                 url = f"https://t.me/c/{str(chat_id).replace('-100', '')}"
         _invite_cache[chat_id] = (title, url)
         return title, url
-    except Exception as e:
-        print(f"⚠️ [JOIN CHECK] Error getting chat info for {chat_id}: {e}")
+    except Exception:
         url = fallback_url or f"https://t.me/{DEVELOPER_USERNAME}"
         return fallback_title, url
 
@@ -419,7 +370,6 @@ def send_maintenance_notice(chat_id):
     )
 
 def guard_user_access(chat_id, owner_command=False):
-    """Returns (allowed, block_reason). Owner panel commands skip join check."""
     if owner_command and is_owner(chat_id):
         return True, None
     if not is_owner(chat_id) and stats_manager.is_user_banned(chat_id):
@@ -471,12 +421,10 @@ def get_ui_card(step_num, title, description, target=None, show_tip=True):
 def send_zero_credits_dashboard(chat_id, message_id=None):
     try:
         bot_username = bot.get_me().username
-    except Exception as e:
-        print(f"⚠️ Failed to get bot username: {e}")
+    except Exception:
         bot_username = "bot"
         
     referral_link = f"https://t.me/{bot_username}?start=ref_{chat_id}"
-    
     data = stats_manager.load_stats()
     
     user_record = None
@@ -486,7 +434,6 @@ def send_zero_credits_dashboard(chat_id, message_id=None):
             break
             
     join_date = user_record.get("joined", "N/A") if user_record else "N/A"
-    
     history = data.get("cracked_history", [])
     success_count = sum(1 for r in history if str(r.get("chat_id")) == str(chat_id))
     
@@ -524,17 +471,13 @@ def send_zero_credits_dashboard(chat_id, message_id=None):
     if message_id:
         try:
             bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=zero_credits_text, reply_markup=markup, parse_mode='HTML')
-        except Exception as e:
-            print(f"⚠️ [ZERO_CREDITS] Failed to edit welcome text: {e}")
+        except Exception:
             bot.send_message(chat_id, zero_credits_text, reply_markup=markup, parse_mode='HTML')
     else:
         bot.send_message(chat_id, zero_credits_text, reply_markup=markup, parse_mode='HTML')
 
-
 def send_welcome_dashboard(chat_id, message_id=None):
     mode = stats_manager.get_bot_mode()
-    
-    credits_info = ""
     if mode == "paid":
         credits = stats_manager.get_user_credits(chat_id)
         credits_info = f"\n💳 <b>Credits Left:</b> <code>{credits}</code>\n"
@@ -555,8 +498,7 @@ def send_welcome_dashboard(chat_id, message_id=None):
     if message_id:
         try:
             bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=welcome_text, reply_markup=markup, parse_mode='HTML')
-        except Exception as e:
-            print(f"⚠️ [WELCOME] Failed to edit welcome text: {e}")
+        except Exception:
             bot.send_message(chat_id, welcome_text, reply_markup=markup, parse_mode='HTML')
     else:
         bot.send_message(chat_id, welcome_text, reply_markup=markup, parse_mode='HTML')
@@ -564,7 +506,6 @@ def send_welcome_dashboard(chat_id, message_id=None):
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     chat_id = message.chat.id
-
     parts = message.text.split()
     referrer_id = None
     if len(parts) > 1 and parts[1].startswith("ref_"):
@@ -577,8 +518,8 @@ def send_welcome(message):
 
     try:
         stats_manager.register_visit(chat_id, username=message.from_user.username, first_name=message.from_user.first_name)
-    except Exception as e:
-        print(f"⚠️ [STATS] Failed to register visit: {e}")
+    except Exception:
+        pass
 
     if is_new_user and referrer_id and referrer_id != chat_id:
         try:
@@ -587,8 +528,8 @@ def send_welcome(message):
             new_user_name = message.from_user.first_name or "Someone"
             ref_notify = f"User named {new_user_name} joined through your link and you got 1 credit"
             bot.send_message(referrer_id, ref_notify)
-        except Exception as ref_err:
-            print(f"⚠️ [REFERRAL] Error rewarding referrer {referrer_id}: {ref_err}")
+        except Exception:
+            pass
 
     if not is_owner(chat_id):
         if stats_manager.is_user_banned(chat_id):
@@ -600,12 +541,9 @@ def send_welcome(message):
 
     send_force_join_welcome(chat_id)
 
-
 @bot.callback_query_handler(func=lambda call: call.data == 'start_bypass')
 def handle_start_bypass(call):
     chat_id = call.message.chat.id
-    print(f"📥 [CALLBACK] start_bypass triggered for chat_id: {chat_id}")
-
     try:
         bot.answer_callback_query(call.id)
     except Exception:
@@ -636,7 +574,6 @@ def handle_start_bypass(call):
 
 def get_admin_dashboard_markup():
     markup = types.InlineKeyboardMarkup(row_width=2)
-
     mode = stats_manager.get_bot_mode()
     maintenance = stats_manager.is_maintenance_mode()
 
@@ -855,8 +792,7 @@ def handle_admin_callbacks(call):
             try:
                 shutil.copy(permanent_path, temp_report_path)
                 report_path = temp_report_path
-            except Exception as e:
-                print(f"⚠️ Failed to copy permanent cracked history: {e}")
+            except Exception:
                 report_path = stats_manager.get_cracked_data_file_path()
         else:
             report_path = stats_manager.get_cracked_data_file_path()
@@ -974,8 +910,8 @@ def handle_admin_callbacks(call):
         
         try:
             bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=msg_text, reply_markup=markup, parse_mode='HTML')
-        except Exception as e:
-            print(f"⚠️ [ADMIN] Error editing message to show users: {e}")
+        except Exception:
+            pass
  
     elif action == "admin_view_logs":
         log_path = stats_manager.get_error_log_file_path()
@@ -1019,8 +955,8 @@ def handle_admin_callbacks(call):
         
         try:
             bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=msg_text, reply_markup=markup, parse_mode='HTML')
-        except Exception as e:
-            print(f"⚠️ [ADMIN] Error editing message to show logs: {e}")
+        except Exception:
+            pass
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('mp|'))
 def handle_manual_pref_selection(call):
@@ -1081,7 +1017,6 @@ def handle_manual_pref_selection(call):
         
         asyncio.run_coroutine_threadsafe(execute_and_reset(chat_id, name, number, dob, user_info=user_info), loop)
 
-
 @bot.callback_query_handler(func=lambda call: call.data == 'refresh_zero_credits')
 def handle_refresh_zero_credits(call):
     chat_id = call.message.chat.id
@@ -1111,7 +1046,6 @@ def handle_refresh_zero_credits(call):
         try:
             bot.answer_callback_query(call.id, text="Still 0 credits. Invite friends or contact admin.", show_alert=True)
         except: pass
-
 
 @bot.callback_query_handler(func=lambda call: call.data in ('verify_membership', 'check_joined_status'))
 def handle_verify_membership(call):
@@ -1144,7 +1078,6 @@ def handle_verify_membership(call):
             pass
         send_force_join_welcome(chat_id, message_id=call.message.message_id, verification_failed=True)
 
-
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
     chat_id = call.message.chat.id
@@ -1154,12 +1087,11 @@ def callback_query(call):
         return
     try:
         bot.answer_callback_query(call.id)
-    except Exception as e:
-        print(f"⚠️ [CALLBACK] Failed to answer generic callback: {e}")
+    except Exception:
+        pass
 
     if not enforce_user_access(chat_id, message_id=call.message.message_id):
         return
-
 
 @bot.message_handler(commands=['profile'])
 def handle_profile(message):
@@ -1173,7 +1105,6 @@ def handle_profile(message):
         str_chat_id = chat_id
         
     data = stats_manager.load_stats()
-    
     user_record = None
     for u in data.get("users", []):
         if isinstance(u, dict) and u.get("chat_id") == str_chat_id:
@@ -1196,7 +1127,6 @@ def handle_profile(message):
     
     history = data.get("cracked_history", [])
     success_count = sum(1 for r in history if r.get("chat_id") == str_chat_id)
-    
     credits_str = "Unlimited 💳" if mode == "free" else f"{credits} 💳"
     
     profile_text = (
@@ -1220,12 +1150,10 @@ def handle_refer(message):
         
     try:
         bot_username = bot.get_me().username
-    except Exception as e:
-        print(f"⚠️ Failed to get bot username: {e}")
+    except Exception:
         bot_username = "bot"
         
     referral_link = f"https://t.me/{bot_username}?start=ref_{chat_id}"
-    
     data = stats_manager.load_stats()
     referred_count = 0
     for u in data.get("users", []):
@@ -1303,8 +1231,7 @@ def perform_broadcast(message):
             bot.copy_message(chat_id=user_id, from_chat_id=admin_chat_id, message_id=message.message_id)
             success += 1
             time.sleep(0.05)
-        except Exception as e:
-            print(f"⚠️ [BROADCAST] Failed to send to {user_id}: {e}")
+        except Exception:
             failed += 1
             
     elapsed = int(time.time() - start_time)
@@ -1324,11 +1251,10 @@ def handle_all(message):
     chat_id = message.chat.id
     try:
         stats_manager.register_visit(chat_id, username=message.from_user.username, first_name=message.from_user.first_name)
-    except Exception as e:
-        print(f"⚠️ [STATS] Failed to register visit: {e}")
+    except Exception:
+        pass
 
     state = user_states.get(chat_id, {})
-
     owner_admin_steps = {
         'AWAITING_BROADCAST_MSG', 'AWAITING_ADMIN_COOLDOWN', 'AWAITING_ADMIN_MAX_CONCURRENT',
         'AWAITING_ADMIN_DEFAULT_CREDITS', 'AWAITING_ADMIN_GRANT_USER_ID', 'AWAITING_ADMIN_GRANT_AMOUNT',
@@ -1353,7 +1279,6 @@ def handle_all(message):
             
         user_states[chat_id] = {'step': 'IDLE'}
         bot.send_message(chat_id, "🚀 <b>Broadcast started in background...</b>\nUsers ko delivery messages report send ki jayegi.", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
-        
         threading.Thread(target=perform_broadcast, args=(message,), daemon=True).start()
         return
 
@@ -1367,11 +1292,9 @@ def handle_all(message):
             bot.send_message(chat_id, "❌ Action cancelled.", reply_markup=types.ReplyKeyboardRemove())
             send_admin_dashboard(chat_id)
             return
-            
         if not text.isdigit():
             bot.send_message(chat_id, "⚠️ Invalid number. Please send an integer value:")
             return
-            
         val = int(text)
         stats_manager.set_cooldown_seconds(val)
         user_states[chat_id] = {'step': 'IDLE'}
@@ -1385,11 +1308,9 @@ def handle_all(message):
             bot.send_message(chat_id, "❌ Action cancelled.", reply_markup=types.ReplyKeyboardRemove())
             send_admin_dashboard(chat_id)
             return
-            
         if not text.isdigit():
             bot.send_message(chat_id, "⚠️ Invalid number. Please send an integer value:")
             return
-            
         val = int(text)
         stats_manager.set_max_concurrent_tasks(val)
         user_states[chat_id] = {'step': 'IDLE'}
@@ -1403,11 +1324,9 @@ def handle_all(message):
             bot.send_message(chat_id, "❌ Action cancelled.", reply_markup=types.ReplyKeyboardRemove())
             send_admin_dashboard(chat_id)
             return
-            
         if not text.isdigit():
             bot.send_message(chat_id, "⚠️ Invalid number. Please send an integer value:")
             return
-            
         count = int(text)
         stats_manager.set_default_credits(count)
         user_states[chat_id] = {'step': 'IDLE'}
@@ -1421,19 +1340,14 @@ def handle_all(message):
             bot.send_message(chat_id, "❌ Action cancelled.", reply_markup=types.ReplyKeyboardRemove())
             send_admin_dashboard(chat_id)
             return
-            
         if not text.isdigit():
             bot.send_message(chat_id, "⚠️ Invalid User ID. Please send a valid numeric Telegram Chat ID:")
             return
-            
         target_id = int(text)
-        user_states[chat_id] = {
-            'step': 'AWAITING_ADMIN_GRANT_AMOUNT',
-            'target_user_id': target_id
-        }
+        user_states[chat_id] = {'step': 'AWAITING_ADMIN_GRANT_AMOUNT', 'target_user_id': target_id}
         cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         cancel_markup.add("Cancel")
-        bot.send_message(chat_id, f"➕ <b>Grant User Credits to ID:</b> <code>{target_id}</code>\n\n👇 Please enter the number of credits to add (e.g. 5, or negative value like -2 to deduct):\n\nType <b>Cancel</b> to abort.", reply_markup=cancel_markup, parse_mode='HTML')
+        bot.send_message(chat_id, f"➕ <b>Grant User Credits to ID:</b> <code>{target_id}</code>\n\n👇 Please enter the number of credits to add:\n\nType <b>Cancel</b> to abort.", reply_markup=cancel_markup, parse_mode='HTML')
         return
 
     if state.get('step') == 'AWAITING_ADMIN_GRANT_AMOUNT':
@@ -1442,22 +1356,18 @@ def handle_all(message):
             bot.send_message(chat_id, "❌ Action cancelled.", reply_markup=types.ReplyKeyboardRemove())
             send_admin_dashboard(chat_id)
             return
-            
         is_negative = text.startswith('-')
         clean_val = text[1:] if is_negative else text
         if not clean_val.isdigit():
             bot.send_message(chat_id, "⚠️ Invalid amount. Please send a numeric integer value:")
             return
-            
         amount = int(clean_val)
         if is_negative:
             amount = -amount
-            
         target_id = state.get('target_user_id')
         new_bal = stats_manager.add_user_credits(target_id, amount)
-        
         user_states[chat_id] = {'step': 'IDLE'}
-        bot.send_message(chat_id, f"✅ Successfully updated credits for user <code>{target_id}</code>.\n💳 Added: <b>{amount}</b>\n💳 New Balance: <b>{new_bal}</b>", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(chat_id, f"✅ Successfully updated credits for user <code>{target_id}</code>.\n💳 Balance: <b>{new_bal}</b>", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
         send_admin_dashboard(chat_id)
         return
 
@@ -1468,12 +1378,11 @@ def handle_all(message):
             send_admin_dashboard(chat_id)
             return
         if not text.isdigit():
-            bot.send_message(chat_id, "⚠️ Invalid User ID. Send a numeric Telegram ID:")
+            bot.send_message(chat_id, "⚠️ Invalid User ID.")
             return
-        target_id = int(text)
-        stats_manager.ban_user(target_id)
+        stats_manager.ban_user(int(text))
         user_states[chat_id] = {'step': 'IDLE'}
-        bot.send_message(chat_id, f"🚫 User <code>{target_id}</code> has been <b>banned</b>.", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(chat_id, f"🚫 User <code>{text}</code> banned.", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
         send_admin_dashboard(chat_id)
         return
 
@@ -1484,12 +1393,11 @@ def handle_all(message):
             send_admin_dashboard(chat_id)
             return
         if not text.isdigit():
-            bot.send_message(chat_id, "⚠️ Invalid User ID. Send a numeric Telegram ID:")
+            bot.send_message(chat_id, "⚠️ Invalid User ID.")
             return
-        target_id = int(text)
-        stats_manager.unban_user(target_id)
+        stats_manager.unban_user(int(text))
         user_states[chat_id] = {'step': 'IDLE'}
-        bot.send_message(chat_id, f"✅ User <code>{target_id}</code> has been <b>unbanned</b>.", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+        bot.send_message(chat_id, f"✅ User <code>{text}</code> unbanned.", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
         send_admin_dashboard(chat_id)
         return
 
@@ -1508,29 +1416,19 @@ def handle_all(message):
             except: pass
             
         user_states[chat_id] = {'step': 'IDLE'}
-        
-        cancel_text = (
-            "❌ <b>Process Cancelled Successfully!</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "Aapka active session cancel kar diya gaya hai."
-        )
-        bot.send_message(chat_id, cancel_text, parse_mode='HTML')
-        
+        bot.send_message(chat_id, "❌ <b>Process Cancelled!</b>", parse_mode='HTML')
         send_welcome_dashboard(chat_id)
         return
     
     import re
-    
     is_group = chat_id < 0
     starts_with_cmd = text.lower().startswith(('/aadhaar', '/aadhar'))
-    
     extracted_target = None
     
     if is_group:
         if starts_with_cmd:
             cmd_len = len('/aadhaar') if text.lower().startswith('/aadhaar') else len('/aadhar')
             number_part = text[cmd_len:].strip()
-            
             clean_num = re.sub(r'\D', '', number_part)
             if len(clean_num) == 10 and clean_num[0] in '6789':
                 extracted_target = clean_num
@@ -1593,14 +1491,12 @@ def handle_all(message):
                 if os.path.exists(pdf_path):
                     with open(pdf_path, 'rb') as f:
                         bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
-            except Exception as e_pdf:
-                print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
+            except Exception:
+                pass
                 
             send_welcome_dashboard(chat_id)
             return
 
-        print(f"🔄 Override: Preempting tasks for {chat_id} -> starting fresh target {extracted_target}")
-        
         aadhaar_engine.user_page_registry.pop(str_chat_id, None)
         aadhaar_engine.buffered_inputs.pop(str_chat_id, None)
         
@@ -1672,7 +1568,6 @@ async def execute_and_reset(chat_id, name, num, dob, user_info=None):
     task_started = False
     try:
         is_admin = is_owner(chat_id)
-        
         if stats_manager.get_bot_mode() == "paid":
             credits = stats_manager.get_user_credits(chat_id)
             if credits <= 0:
@@ -1699,7 +1594,6 @@ async def execute_and_reset(chat_id, name, num, dob, user_info=None):
 
         task_started = await aadhaar_engine.execute_task(bot, chat_id, name, num, dob, user_info=user_info)
     except Exception as e:
-        print(f"❌ [execute_and_reset] Task error: {e}")
         try:
             stats_manager.log_error(chat_id, user_info, f"execute_and_reset: {e}")
         except: pass
@@ -1710,28 +1604,23 @@ async def execute_and_reset(chat_id, name, num, dob, user_info=None):
                 send_welcome_dashboard(chat_id)
             except: pass
 
-
 def cleanup_temp_files():
     print("🧹 [CLEANUP] Sweeping residual temporary files...")
     import shutil
-    
     prefixes = ['temp_captcha_', 'cap_ui_', 'cap_um_']
     for file in os.listdir(BASE_DIR):
         if any(file.startswith(prefix) for prefix in prefixes):
             try:
                 os.remove(os.path.join(BASE_DIR, file))
-                print(f"🗑️ Cleaned temp file: {file}")
             except: pass
 
     cracked_dir = os.path.join(BASE_DIR, 'cracked_aadhar')
     os.makedirs(cracked_dir, exist_ok=True)
-    print(f"📁 [CLEANUP] Output folder ready: {cracked_dir}")
-            
+    
     bulk_dir = os.path.join(BASE_DIR, 'BULK_USER_DATA')
     if os.path.exists(bulk_dir):
         try:
             shutil.rmtree(bulk_dir, ignore_errors=True)
-            print("🧹 Cleaned bulk user data directories.")
         except: pass
 
 if __name__ == "__main__":
@@ -1759,12 +1648,11 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  🔴 {label} {target} unreachable: {e}")
     
-print("🤖 Bot is now LIVE.")
+    print("🤖 Bot is now LIVE.")
     
     # Infinite Polling Loop with Webhook Reset & Conflict Backoff
     while True:
         try:
-            # Clear hanging webhooks on Telegram's servers
             bot.remove_webhook()
             time.sleep(1)
             
