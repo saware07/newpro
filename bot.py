@@ -419,6 +419,27 @@ def get_ui_card(step_num, title, description, target=None, show_tip=True):
         
     return body
 
+# ── ROBUST PER-USER CHAT HISTORY CHECK HELPER ─────────────────────────
+def check_user_pdf_history(chat_id, target_input):
+    try:
+        clean_target = ''.join(filter(str.isdigit, str(target_input)))
+        if len(clean_target) >= 10:
+            clean_target = clean_target[-10:] # Normalize to last 10 digits
+            
+        # Check db_module.pdf_logs_col safely
+        record = db_module.pdf_logs_col.find_one({
+            "user_id": str(chat_id),
+            "channel_message_id": {"$ne": None},
+            "$or": [
+                {"eid_or_mobile": clean_target},
+                {"eid_or_mobile": {"$regex": clean_target}}
+            ]
+        })
+        return record
+    except Exception as e:
+        print(f"⚠️ [DB HISTORY CHECK ERROR]: {e}")
+        return None
+
 def send_zero_credits_dashboard(chat_id, message_id=None):
     try:
         bot_username = bot.get_me().username
@@ -1475,18 +1496,14 @@ def handle_all(message):
                 send_zero_credits_dashboard(chat_id)
                 return
 
-        # 🔍 STRICT PER-USER CHAT HISTORY CHECK
-        existing_log = pdf_logs_col.find_one({
-            "user_id": str(chat_id),
-            "eid_or_mobile": extracted_target,
-            "channel_message_id": {"$ne": None}
-        })
+        # 🔍 STRICT PER-USER CHAT HISTORY CHECK VIA HELPER
+        existing_log = check_user_pdf_history(chat_id, extracted_target)
         
         if existing_log and existing_log.get('channel_message_id'):
             if stats_manager.get_bot_mode() == "paid":
                 stats_manager.deduct_user_credit(chat_id)
                 
-            logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered {extracted_target}. Instantly delivering previous PDF from chat history...")
+            print(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered {extracted_target}. Instantly delivering previous PDF from chat history...")
             bot.send_message(
                 chat_id,
                 f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
@@ -1498,7 +1515,7 @@ def handle_all(message):
             
             channel_msg_id = existing_log.get('channel_message_id')
             channel_id = existing_log.get('channel_id', -1003968368088)
-            copy_message(chat_id, channel_id, channel_msg_id)
+            db_module.copy_message(chat_id, channel_id, channel_msg_id)
             send_welcome_dashboard(chat_id)
             return
 
@@ -1574,24 +1591,21 @@ def handle_all(message):
         if re.match(r'^\d{10}$', text):
             mobile = text
             
-            existing_log = pdf_logs_col.find_one({
-                "user_id": str(chat_id),
-                "eid_or_mobile": mobile,
-                "channel_message_id": {"$ne": None}
-            })
+            existing_log = check_user_pdf_history(chat_id, mobile)
             
             if existing_log and existing_log.get('channel_message_id'):
-                logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered mobile {mobile}. Instantly delivering previous PDF...")
-                send_message(
+                print(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered mobile {mobile}. Instantly delivering previous PDF...")
+                bot.send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Fetching directly from your chat history…</i>"
+                    f"◈  Fetching directly from your chat history…</i>",
+                    parse_mode='HTML'
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
-                copy_message(chat_id, channel_id, channel_msg_id)
+                db_module.copy_message(chat_id, channel_id, channel_msg_id)
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
@@ -1611,24 +1625,21 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_AADHAAR':
         aadhaar_num = text.strip().replace(' ', '')
         if re.match(r'^\d{12}$', aadhaar_num):
-            existing_log = pdf_logs_col.find_one({
-                "user_id": str(chat_id),
-                "eid_or_mobile": aadhaar_num,
-                "channel_message_id": {"$ne": None}
-            })
+            existing_log = check_user_pdf_history(chat_id, aadhaar_num)
             
             if existing_log and existing_log.get('channel_message_id'):
-                logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered Aadhaar {aadhaar_num}. Instantly delivering previous PDF...")
-                send_message(
+                print(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered Aadhaar {aadhaar_num}. Instantly delivering previous PDF...")
+                bot.send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Fetching directly from your chat history…</i>"
+                    f"◈  Fetching directly from your chat history…</i>",
+                    parse_mode='HTML'
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
-                copy_message(chat_id, channel_id, channel_msg_id)
+                db_module.copy_message(chat_id, channel_id, channel_msg_id)
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
@@ -1637,24 +1648,21 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_EID_INPUT':
         eid_num = text.strip()
         if len(eid_num) >= 10:
-            existing_log = pdf_logs_col.find_one({
-                "user_id": str(chat_id),
-                "eid_or_mobile": eid_num,
-                "channel_message_id": {"$ne": None}
-            })
+            existing_log = check_user_pdf_history(chat_id, eid_num)
             
             if existing_log and existing_log.get('channel_message_id'):
-                logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered EID {eid_num}. Instantly delivering previous PDF...")
-                send_message(
+                print(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered EID {eid_num}. Instantly delivering previous PDF...")
+                bot.send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Fetching directly from your chat history…</i>"
+                    f"◈  Fetching directly from your chat history…</i>",
+                    parse_mode='HTML'
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
-                copy_message(chat_id, channel_id, channel_msg_id)
+                db_module.copy_message(chat_id, channel_id, channel_msg_id)
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
