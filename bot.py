@@ -3,7 +3,7 @@ import sys
 import importlib
 import asyncio
 import re
-import requests
+from curl_cffi import requests as cffi_requests
 
 if sys.platform == "win32":
     try:
@@ -16,6 +16,7 @@ if sys.platform == "win32":
 REQUIRED_MODULES = {
     "telebot": "pyTelegramBotAPI",
     "requests": "requests",
+    "curl_cffi": "curl_cffi",
     "urllib3": "urllib3",
     "dotenv": "python-dotenv",
     "ddddocr": "ddddocr",
@@ -653,7 +654,7 @@ def handle_admin_callbacks(call):
         bot.send_message(
             chat_id,
             "🔥 <b>Firebase Online Monitor</b>\n\n"
-            "👇 Kripya ek ya ek se zyada <b>Firebase Realtime Database links</b> paste karein (bulk links ek line me ya alag-alag lines me ho sakte hain):\n\n"
+            "👇 Kripya ek ya ek se zyada <b>Firebase Realtime Database links</b> paste karein (Auth keys are fully supported):\n\n"
             "Type <b>Cancel</b> to abort.",
             reply_markup=cancel_markup,
             parse_mode='HTML'
@@ -1314,7 +1315,7 @@ def handle_all(message):
         return
     text = message.text.strip()
 
-    # --- FIREBASE MONITOR INTERCEPTOR ---
+    # --- FIREBASE MONITOR INTERCEPTOR (With Auth Keys & Chrome 120 TLS Fingerprint) ---
     if state.get('step') == 'AWAITING_FIREBASE_LINKS':
         if text.lower() == 'cancel':
             user_states[chat_id] = {'step': 'IDLE'}
@@ -1322,60 +1323,116 @@ def handle_all(message):
             send_admin_dashboard(chat_id)
             return
 
-        urls = re.findall(r'https?://[^\s]+', text)
-        if not urls:
-            lines = [line.strip() for line in text.splitlines() if line.strip()]
-            urls = [l if l.startswith('http') else f"https://{l}" for l in lines]
+        def extract_unique_urls(t: str) -> list:
+            if not t:
+                return []
+            unique_list = []
+            seen = set()
+            lines = t.split("\n")
+            current_url = None
+            current_auth = None
+            for line in lines:
+                url_match = re.search(r'Firebase URL:\s*(https?://[^\s]+)', line, re.IGNORECASE)
+                if url_match:
+                    current_url = url_match.group(1).strip().rstrip('.,;:!)]}')
+                auth_match = re.search(r'Auth Key:\s*([^\s]+)', line, re.IGNORECASE)
+                if auth_match:
+                    current_auth = auth_match.group(1).strip().rstrip('.,;:!)]}')
+                if current_url:
+                    base_match = re.search(r'(https?://[a-zA-Z0-9\-]+\.(?:firebaseio\.com|firebasedatabase\.app|firebaseapp\.com))', current_url)
+                    if base_match:
+                        base_domain = base_match.group(1).rstrip("/") + "/"
+                        final_item = base_domain
+                        if current_auth and not current_auth.startswith("http") and len(current_auth) > 5:
+                            final_item = f"{base_domain}?auth={current_auth}"
+                        if final_item not in seen:
+                            seen.add(final_item)
+                            unique_list.append(final_item)
+                    current_url = None
+                    current_auth = None
+            if not unique_list:
+                pattern = r'https?://[^\s]+\.(?:firebaseio\.com|firebasedatabase\.app|firebaseapp\.com)[^\s]*'
+                found = re.findall(pattern, t)
+                for u in found:
+                    u = u.strip().rstrip('.,;:!)]}')
+                    if u and u not in seen:
+                        seen.add(u)
+                        unique_list.append(u)
+            return unique_list
 
+        urls = extract_unique_urls(text)
         if not urls:
             bot.send_message(chat_id, "⚠️ No valid Firebase links found. Kripya valid links paste karein:")
             return
 
-        status_msg = bot.send_message(chat_id, "⏳ <b>Checking Firebase links...</b> Kripya wait karein.", parse_mode='HTML')
+        status_msg = bot.send_message(chat_id, f"⏳ <b>Scanning {len(urls)} Firebase links with Chrome TLS fingerprint...</b> Kripya wait karein.", parse_mode='HTML')
         
         report_lines = []
         total_online_all = 0
 
-        for idx, url in enumerate(urls, 1):
-            clean_url = url.split('?')[0].rstrip('/')
-            if not clean_url.endswith('.json'):
-                json_url = f"{clean_url}.json"
+        for idx, item in enumerate(urls, 1):
+            item = item.strip()
+            if "?" in item:
+                base_url, query = item.split("?", 1)
+                if not base_url.endswith("/"):
+                    base_url += "/"
+                clients_endpoint = f"{base_url}clients.json?{query}"
             else:
-                json_url = clean_url
+                if not item.endswith("/"):
+                    item += "/"
+                clients_endpoint = f"{item}clients.json"
 
             try:
-                resp = requests.get(json_url, timeout=10)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    count = 0
+                res = cffi_requests.get(clients_endpoint, impersonate="chrome120", timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    online_devices = 0
                     if isinstance(data, dict):
-                        count = len(data)
+                        online_devices = sum(
+                            1 for cdata in data.values() 
+                            if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("online") is True)
+                        )
+                        if online_devices == 0 and len(data) > 0:
+                            online_devices = len(data)
                     elif isinstance(data, list):
-                        count = len([x for x in data if x is not None])
+                        online_devices = len([x for x in data if x is not None])
                     
-                    total_online_all += count
-                    report_lines.append(f"<b>{idx}.</b> <code>{clean_url.replace('.json', '')}</code>\n   🟢 Online/Nodes: <b>{count}</b>")
+                    total_online_all += online_devices
+                    clean_display = item.split('?')[0].replace('clients.json', '')
+                    report_lines.append(f"<b>{idx}.</b> <code>{clean_display}</code>\n   🟢 Online Devices: <b>{online_devices}</b>")
                 else:
-                    report_lines.append(f"<b>{idx}.</b> <code>{clean_url.replace('.json', '')}</code>\n   🔴 Error: HTTP {resp.status_code}")
+                    clean_display = item.split('?')[0].replace('clients.json', '')
+                    report_lines.append(f"<b>{idx}.</b> <code>{clean_display}</code>\n   🔴 Error: HTTP {res.status_code}")
             except Exception:
-                report_lines.append(f"<b>{idx}.</b> <code>{clean_url.replace('.json', '')}</code>\n   ❌ Unreachable")
+                clean_display = item.split('?')[0].replace('clients.json', '')
+                report_lines.append(f"<b>{idx}.</b> <code>{clean_display}</code>\n   ❌ Unreachable")
 
-        summary_report = (
-            "🔥 <b>FIREBASE MONITOR REPORT</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n" +
-            "\n".join(report_lines) + "\n\n"
+        chunks = []
+        current_chunk = "🔥 <b>FIREBASE MONITOR REPORT</b>\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        
+        for line in report_lines:
+            if len(current_chunk) + len(line) + 2 > 3900:
+                chunks.append(current_chunk + "━━━━━━━━━━━━━━━━━━━━━━")
+                current_chunk = "🔥 <b>FIREBASE MONITOR REPORT (Cont.)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n"
+            current_chunk += line + "\n\n"
+
+        summary_footer = (
             "━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📊 <b>Total Checked Links:</b> <code>{len(urls)}</code>\n"
-            f"🟢 <b>Total Online / Active Nodes:</b> <code>{total_online_all}</code>\n"
+            f"🟢 <b>Total Online / Active Devices:</b> <code>{total_online_all}</code>\n"
             "━━━━━━━━━━━━━━━━━━━━━━"
         )
+        chunks.append(current_chunk + summary_footer)
 
         user_states[chat_id] = {'step': 'IDLE'}
         try:
             bot.delete_message(chat_id, status_msg.message_id)
         except: pass
         
-        bot.send_message(chat_id, summary_report, parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+        for chunk in chunks:
+            bot.send_message(chat_id, chunk, parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+            time.sleep(0.3)
+
         send_admin_dashboard(chat_id)
         return
     
