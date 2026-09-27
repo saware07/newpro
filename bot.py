@@ -1392,7 +1392,7 @@ def handle_all(message):
                             data = res.json() or {}
                             online_cids = [
                                 cid for cid, cdata in data.items() 
-                                if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("online") is True)
+                                if isinstance(cdata, dict) and cdata.get("status") is True
                             ]
                             if not online_cids and len(data) > 0:
                                 online_cids = list(data.keys())
@@ -1419,17 +1419,27 @@ def handle_all(message):
                     for cid in online_cids:
                         phone_number = None
                         
-                        # 1. Check direct client fields first
-                        c_data = clients_dict.get(cid, {})
-                        if isinstance(c_data, dict):
-                            for k in ('mobNo', 'phoneNumber', 'phone', 'mobile', 'msisdn', 'number'):
-                                p_val = str(c_data.get(k, '')).strip()
-                                clean_p = ''.join(filter(str.isdigit, p_val))
-                                if len(clean_p) == 10 and clean_p[0] in '6789':
-                                    phone_number = clean_p
-                                    break
+                        # 1. Check client ID as direct phone number
+                        clean_cid = ''.join(filter(str.isdigit, str(cid)))
+                        if len(clean_cid) >= 10:
+                            possible_cid_num = clean_cid[-10:]
+                            if possible_cid_num[0] in '6789':
+                                phone_number = possible_cid_num
 
-                        # 2. Fallback: Scan messages/{cid}.json
+                        # 2. Check client fields
+                        if not phone_number:
+                            c_data = clients_dict.get(cid, {})
+                            if isinstance(c_data, dict):
+                                for k in ('mobNo', 'phoneNumber', 'phone', 'mobile', 'msisdn', 'number'):
+                                    p_val = str(c_data.get(k, '')).strip()
+                                    clean_p = ''.join(filter(str.isdigit, p_val))
+                                    if len(clean_p) >= 10:
+                                        possible_num = clean_p[-10:]
+                                        if possible_num[0] in '6789':
+                                            phone_number = possible_num
+                                            break
+
+                        # 3. Fallback: Scan messages/{cid}.json using extract_phone logic from befit firebase reference
                         if not phone_number:
                             msg_endpoint = f"{base_url}messages/{cid}.json"
                             if query:
@@ -1438,18 +1448,11 @@ def handle_all(message):
                                 m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
                                 msgs = m_res.json() or {}
                                 if isinstance(msgs, dict):
-                                    for m_val in msgs.values():
-                                        if isinstance(m_val, dict):
-                                            for mk in ('body', 'message', 'text', 'phoneNumber', 'number', 'phone'):
-                                                body = str(m_val.get(mk, ""))
-                                                clean_txt = ''.join(filter(str.isdigit, body))
-                                                if len(clean_txt) >= 10:
-                                                    possible_num = clean_txt[-10:]
-                                                    if possible_num[0] in '6789':
-                                                        phone_number = possible_num
-                                                        break
-                                        if phone_number:
-                                            break
+                                    text_data = str(msgs)
+                                    cleaned_text = re.sub(r'[\s\-]', '', text_data)
+                                    match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', cleaned_text)
+                                    if match:
+                                        phone_number = match.group(1) or match.group(2)
                             except Exception:
                                 pass
 
