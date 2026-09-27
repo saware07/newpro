@@ -1486,11 +1486,16 @@ def handle_all(message):
             )
             bot.send_message(chat_id, cached_text, parse_mode='HTML')
             
+            # Robust Wildcard Search for PDF in cracked_aadhar directory
             try:
-                safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-                safe_uid = uid.replace(' ', '')
-                pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
-                if os.path.exists(pdf_path):
+                clean_uid = uid.replace(' ', '')
+                pdf_path = None
+                for fname in os.listdir(aadhaar_engine.CRACKED_DIR):
+                    if fname.endswith('.pdf') and clean_uid in fname.replace(' ', ''):
+                        pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, fname)
+                        break
+                        
+                if pdf_path and os.path.exists(pdf_path):
                     with open(pdf_path, 'rb') as f:
                         bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
             except Exception as e_pdf:
@@ -1593,10 +1598,14 @@ def handle_all(message):
                 bot.send_message(chat_id, cached_text, parse_mode='HTML')
                 
                 try:
-                    safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-                    safe_uid = uid.replace(' ', '')
-                    pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
-                    if os.path.exists(pdf_path):
+                    clean_uid = uid.replace(' ', '')
+                    pdf_path = None
+                    for fname in os.listdir(aadhaar_engine.CRACKED_DIR):
+                        if fname.endswith('.pdf') and clean_uid in fname.replace(' ', ''):
+                            pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, fname)
+                            break
+                            
+                    if pdf_path and os.path.exists(pdf_path):
                         with open(pdf_path, 'rb') as f:
                             bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
                 except Exception as e_pdf:
@@ -1643,10 +1652,14 @@ def handle_all(message):
                 bot.send_message(chat_id, cached_text, parse_mode='HTML')
                 
                 try:
-                    safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-                    safe_uid = uid.replace(' ', '')
-                    pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
-                    if os.path.exists(pdf_path):
+                    clean_uid = uid.replace(' ', '')
+                    pdf_path = None
+                    for fname in os.listdir(aadhaar_engine.CRACKED_DIR):
+                        if fname.endswith('.pdf') and clean_uid in fname.replace(' ', ''):
+                            pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, fname)
+                            break
+                            
+                    if pdf_path and os.path.exists(pdf_path):
                         with open(pdf_path, 'rb') as f:
                             bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
                 except Exception as e_pdf:
@@ -1681,10 +1694,14 @@ def handle_all(message):
                 bot.send_message(chat_id, cached_text, parse_mode='HTML')
                 
                 try:
-                    safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-                    safe_uid = uid.replace(' ', '')
-                    pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
-                    if os.path.exists(pdf_path):
+                    clean_uid = uid.replace(' ', '')
+                    pdf_path = None
+                    for fname in os.listdir(aadhaar_engine.CRACKED_DIR):
+                        if fname.endswith('.pdf') and clean_uid in fname.replace(' ', ''):
+                            pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, fname)
+                            break
+                            
+                    if pdf_path and os.path.exists(pdf_path):
                         with open(pdf_path, 'rb') as f:
                             bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
                 except Exception as e_pdf:
@@ -1778,7 +1795,7 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  🔴 {label} {target} unreachable: {e}")
     
-    print("🤖 Bot is now LIVE.")
+    print("🤖 Bot is now LIVE. Ready to instantly deliver cached PDFs from per-user history.")
     
     # Infinite Polling Loop with Webhook Reset & Conflict Backoff
     while True:
