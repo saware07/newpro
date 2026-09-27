@@ -1465,7 +1465,7 @@ def handle_all(message):
                 return
 
         # 🔍 STRICT PER-USER CHAT HISTORY CHECK (Replaces global cracked history check)
-        existing_log = pdf_logs_col.find_one({
+        existing_log = db.pdf_logs.find_one({
             "user_id": str(chat_id),
             "eid_or_mobile": extracted_target,
             "channel_message_id": {"$ne": None}
@@ -1563,7 +1563,7 @@ def handle_all(message):
         if re.match(r'^\d{10}$', text):
             mobile = text
             
-            existing_log = pdf_logs_col.find_one({
+            existing_log = db.pdf_logs.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": mobile,
                 "channel_message_id": {"$ne": None}
@@ -1571,13 +1571,12 @@ def handle_all(message):
             
             if existing_log and existing_log.get('channel_message_id'):
                 logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered mobile {mobile}. Instantly delivering previous PDF...")
-                bot.send_message(
+                send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Fetching directly from your chat history…</i>",
-                    parse_mode='HTML'
+                    f"◈  Fetching directly from your chat history…</i>"
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
@@ -1601,7 +1600,7 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_AADHAAR':
         aadhaar_num = text.strip().replace(' ', '')
         if re.match(r'^\d{12}$', aadhaar_num):
-            existing_log = pdf_logs_col.find_one({
+            existing_log = db.pdf_logs.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": aadhaar_num,
                 "channel_message_id": {"$ne": None}
@@ -1609,13 +1608,12 @@ def handle_all(message):
             
             if existing_log and existing_log.get('channel_message_id'):
                 logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered Aadhaar {aadhaar_num}. Instantly delivering previous PDF...")
-                bot.send_message(
+                send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Fetching directly from your chat history…</i>",
-                    parse_mode='HTML'
+                    f"◈  Fetching directly from your chat history…</i>"
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
@@ -1628,7 +1626,7 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_EID_INPUT':
         eid_num = text.strip()
         if len(eid_num) >= 10:
-            existing_log = pdf_logs_col.find_one({
+            existing_log = db.pdf_logs.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": eid_num,
                 "channel_message_id": {"$ne": None}
@@ -1636,13 +1634,12 @@ def handle_all(message):
             
             if existing_log and existing_log.get('channel_message_id'):
                 logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered EID {eid_num}. Instantly delivering previous PDF...")
-                bot.send_message(
+                send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
                     f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Fetching directly from your chat history…</i>",
-                    parse_mode='HTML'
+                    f"◈  Fetching directly from your chat history…</i>"
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
