@@ -139,7 +139,6 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 import aadhaar_engine
 from aadhaar_engine import user_page_registry
-import database as db_module
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 if not TOKEN:
@@ -1465,7 +1464,7 @@ def handle_all(message):
                 return
 
         # 🔍 STRICT PER-USER CHAT HISTORY CHECK
-        existing_log = db.pdf_logs.find_one({
+        existing_log = db_module.pdf_logs_col.find_one({
             "user_id": str(chat_id),
             "eid_or_mobile": extracted_target,
             "channel_message_id": {"$ne": None}
@@ -1563,7 +1562,7 @@ def handle_all(message):
         if re.match(r'^\d{10}$', text):
             mobile = text
             
-            existing_log = db.pdf_logs.find_one({
+            existing_log = db_module.pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": mobile,
                 "channel_message_id": {"$ne": None}
@@ -1600,7 +1599,7 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_AADHAAR':
         aadhaar_num = text.strip().replace(' ', '')
         if re.match(r'^\d{12}$', aadhaar_num):
-            existing_log = db.pdf_logs.find_one({
+            existing_log = db_module.pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": aadhaar_num,
                 "channel_message_id": {"$ne": None}
@@ -1626,7 +1625,7 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_EID_INPUT':
         eid_num = text.strip()
         if len(eid_num) >= 10:
-            existing_log = db.pdf_logs.find_one({
+            existing_log = db_module.pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": eid_num,
                 "channel_message_id": {"$ne": None}
