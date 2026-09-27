@@ -1464,37 +1464,30 @@ def handle_all(message):
                 send_zero_credits_dashboard(chat_id)
                 return
 
-        cached_record = stats_manager.find_cracked_record(extracted_target)
-        if cached_record:
+        # 🔍 STRICT PER-USER CHAT HISTORY CHECK (Replaces global cracked history check)
+        existing_log = pdf_logs_col.find_one({
+            "user_id": str(chat_id),
+            "eid_or_mobile": extracted_target,
+            "channel_message_id": {"$ne": None}
+        })
+        
+        if existing_log and existing_log.get('channel_message_id'):
             if stats_manager.get_bot_mode() == "paid":
                 stats_manager.deduct_user_credit(chat_id)
                 
-            name = cached_record.get("name", "N/A")
-            uid = cached_record.get("uid", "N/A")
-            password = cached_record.get("password", "N/A")
-            eid = cached_record.get("eid", "N/A")
-            
-            cached_text = (
-                "🎉 <b>Record Found in Database! (Instant Retrieval)</b>\n\n"
-                f"👤 <b>Name:</b> <code>{name}</code>\n"
-                f"📞 <b>Mobile:</b> <code>{extracted_target}</code>\n"
-                f"🆔 <b>EID:</b> <code>{eid}</code>\n"
-                f"🔢 <b>Aadhaar Number:</b> <code>{uid}</code>\n"
-                f"🔑 <b>Password:</b> <code>{password}</code>\n\n"
-                "⚡ <i>Data locally retrieved instantly without contacting UIDAI servers.</i>"
+            logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered {extracted_target}. Instantly delivering previous PDF from chat history...")
+            bot.send_message(
+                chat_id,
+                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
+                f"<i>◈  You have already downloaded this document before.\n"
+                f"◈  Fetching directly from your chat history…</i>",
+                parse_mode='HTML'
             )
-            bot.send_message(chat_id, cached_text, parse_mode='HTML')
             
-            try:
-                safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
-                safe_uid = uid.replace(' ', '')
-                pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
-                if os.path.exists(pdf_path):
-                    with open(pdf_path, 'rb') as f:
-                        bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
-            except Exception:
-                pass
-                
+            channel_msg_id = existing_log.get('channel_message_id')
+            channel_id = existing_log.get('channel_id', -1003968368088)
+            copy_message(chat_id, channel_id, channel_msg_id)
             send_welcome_dashboard(chat_id)
             return
 
@@ -1570,25 +1563,25 @@ def handle_all(message):
         if re.match(r'^\d{10}$', text):
             mobile = text
             
-            existing_log = db_module.pdf_logs_col.find_one({
+            existing_log = pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": mobile,
                 "channel_message_id": {"$ne": None}
             })
             
             if existing_log and existing_log.get('channel_message_id'):
-                logger.info(f"⚡ [CACHE HIT] User {chat_id} re-entered mobile {mobile}. Instantly delivering previous PDF...")
+                logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered mobile {mobile}. Instantly delivering previous PDF...")
                 bot.send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                    f"<b>〔 Instant Retrieval  ✓ 〕</b>\n\n"
+                    f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Bypassing OTP & fetching from your history…</i>",
+                    f"◈  Fetching directly from your chat history…</i>",
                     parse_mode='HTML'
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
-                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                copy_message(chat_id, channel_id, channel_msg_id)
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
@@ -1608,25 +1601,25 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_AADHAAR':
         aadhaar_num = text.strip().replace(' ', '')
         if re.match(r'^\d{12}$', aadhaar_num):
-            existing_log = db_module.pdf_logs_col.find_one({
+            existing_log = pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": aadhaar_num,
                 "channel_message_id": {"$ne": None}
             })
             
             if existing_log and existing_log.get('channel_message_id'):
-                logger.info(f"⚡ [CACHE HIT] User {chat_id} re-entered Aadhaar {aadhaar_num}. Instantly delivering previous PDF...")
+                logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered Aadhaar {aadhaar_num}. Instantly delivering previous PDF...")
                 bot.send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                    f"<b>〔 Instant Retrieval  ✓ 〕</b>\n\n"
+                    f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Bypassing OTP & fetching from your history…</i>",
+                    f"◈  Fetching directly from your chat history…</i>",
                     parse_mode='HTML'
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
-                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                copy_message(chat_id, channel_id, channel_msg_id)
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
@@ -1635,25 +1628,25 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_EID_INPUT':
         eid_num = text.strip()
         if len(eid_num) >= 10:
-            existing_log = db_module.pdf_logs_col.find_one({
+            existing_log = pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": eid_num,
                 "channel_message_id": {"$ne": None}
             })
             
             if existing_log and existing_log.get('channel_message_id'):
-                logger.info(f"⚡ [CACHE HIT] User {chat_id} re-entered EID {eid_num}. Instantly delivering previous PDF...")
+                logger.info(f"⚡ [PER-USER CACHE HIT] User {chat_id} re-entered EID {eid_num}. Instantly delivering previous PDF...")
                 bot.send_message(
                     chat_id,
                     f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                    f"<b>〔 Instant Retrieval  ✓ 〕</b>\n\n"
+                    f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
                     f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Bypassing OTP & fetching from your history…</i>",
+                    f"◈  Fetching directly from your chat history…</i>",
                     parse_mode='HTML'
                 )
                 channel_msg_id = existing_log.get('channel_message_id')
                 channel_id = existing_log.get('channel_id', -1003968368088)
-                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                copy_message(chat_id, channel_id, channel_msg_id)
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
