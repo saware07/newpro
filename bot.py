@@ -654,7 +654,7 @@ def handle_admin_callbacks(call):
         bot.send_message(
             chat_id,
             "⚡ <b>Auto Firebase Automation</b>\n\n"
-            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein. Bot sabhi links scan karega, combined online devices count karega aur automatically process karega:\n\n"
+            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein (bulk links & auth keys supported). Bot sabhi links scan karega, combined online devices count karega aur automatically process karega:\n\n"
             "Type <b>Cancel</b> to abort.",
             reply_markup=cancel_markup,
             parse_mode='HTML'
