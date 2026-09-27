@@ -139,7 +139,6 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 import aadhaar_engine
 from aadhaar_engine import user_page_registry
-import database as db_module
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 if not TOKEN:
@@ -424,15 +423,16 @@ def check_user_pdf_history(chat_id, target_input):
     try:
         clean_target = ''.join(filter(str.isdigit, str(target_input)))
         if len(clean_target) >= 10:
-            clean_target = clean_target[-10:] # Normalize to last 10 digits
+            clean_target = clean_target[-10:]
             
-        # Check db_module.pdf_logs_col safely
-        record = db_module.pdf_logs_col.find_one({
+        record = pdf_logs_col.find_one({
             "user_id": str(chat_id),
             "channel_message_id": {"$ne": None},
             "$or": [
-                {"eid_or_mobile": clean_target},
-                {"eid_or_mobile": {"$regex": clean_target}}
+                {"eid_or_mobile": {"$regex": clean_target}},
+                {"mobile": {"$regex": clean_target}},
+                {"eid": {"$regex": clean_target}},
+                {"aadhaar": {"$regex": clean_target}}
             ]
         })
         return record
