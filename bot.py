@@ -1427,7 +1427,6 @@ def handle_all(message):
                         except Exception:
                             continue
                         
-                        # Proven robust phone extraction from message dictionary payload
                         phone_number = None
                         text_data = str(msgs)
                         cleaned_text = re.sub(r'[\s\-]', '', text_data)
