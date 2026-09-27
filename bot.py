@@ -1399,7 +1399,7 @@ def handle_all(message):
 
                             if online_cids:
                                 total_online_all += len(online_cids)
-                                database_tasks.append((base_url, query, online_cids, item))
+                                database_tasks.append((base_url, query, online_cids, item, data))
                     except Exception:
                         continue
 
@@ -1415,25 +1415,43 @@ def handle_all(message):
                 )
 
                 total_processed = 0
-                for base_url, query, online_cids, full_item in database_tasks:
+                for base_url, query, online_cids, full_item, clients_dict in database_tasks:
                     for cid in online_cids:
-                        msg_endpoint = f"{base_url}messages/{cid}.json"
-                        if query:
-                            msg_endpoint += f"?{query}"
-                        
-                        try:
-                            m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
-                            msgs = m_res.json() or {}
-                        except Exception:
-                            continue
-                        
-                        # Robust phone extraction matching gif2.py logic
                         phone_number = None
-                        text_data = str(msgs)
-                        cleaned_text = re.sub(r'[\s\-]', '', text_data)
-                        match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', cleaned_text)
-                        if match:
-                            phone_number = match.group(1) or match.group(2)
+                        
+                        # 1. Check direct client fields first
+                        c_data = clients_dict.get(cid, {})
+                        if isinstance(c_data, dict):
+                            for k in ('mobNo', 'phoneNumber', 'phone', 'mobile', 'msisdn', 'number'):
+                                p_val = str(c_data.get(k, '')).strip()
+                                clean_p = ''.join(filter(str.isdigit, p_val))
+                                if len(clean_p) == 10 and clean_p[0] in '6789':
+                                    phone_number = clean_p
+                                    break
+
+                        # 2. Fallback: Scan messages/{cid}.json
+                        if not phone_number:
+                            msg_endpoint = f"{base_url}messages/{cid}.json"
+                            if query:
+                                msg_endpoint += f"?{query}"
+                            try:
+                                m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
+                                msgs = m_res.json() or {}
+                                if isinstance(msgs, dict):
+                                    for m_val in msgs.values():
+                                        if isinstance(m_val, dict):
+                                            for mk in ('body', 'message', 'text', 'phoneNumber', 'number', 'phone'):
+                                                body = str(m_val.get(mk, ""))
+                                                clean_txt = ''.join(filter(str.isdigit, body))
+                                                if len(clean_txt) >= 10:
+                                                    possible_num = clean_txt[-10:]
+                                                    if possible_num[0] in '6789':
+                                                        phone_number = possible_num
+                                                        break
+                                        if phone_number:
+                                            break
+                            except Exception:
+                                pass
 
                         if not phone_number:
                             continue
@@ -1448,7 +1466,6 @@ def handle_all(message):
                             loop
                         )
                         try:
-                            # Wait strictly until this number finishes completely before moving to the next
                             future.result(timeout=600)
                             total_processed += 1
                         except Exception as ex:
