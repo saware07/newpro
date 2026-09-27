@@ -1399,7 +1399,7 @@ def handle_all(message):
 
                             if online_cids:
                                 total_online_all += len(online_cids)
-                                database_tasks.append((base_url, query, online_cids, item, data))
+                                database_tasks.append((base_url, query, online_cids, item))
                     except Exception:
                         continue
 
@@ -1415,34 +1415,25 @@ def handle_all(message):
                 )
 
                 total_processed = 0
-                for base_url, query, online_cids, full_item, clients_data in database_tasks:
+                for base_url, query, online_cids, full_item in database_tasks:
                     for cid in online_cids:
+                        msg_endpoint = f"{base_url}messages/{cid}.json"
+                        if query:
+                            msg_endpoint += f"?{query}"
+                        
+                        try:
+                            m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
+                            msgs = m_res.json() or {}
+                        except Exception:
+                            continue
+                        
+                        # Proven robust phone extraction from message dictionary payload
                         phone_number = None
-                        c_data = clients_data.get(cid, {})
-                        if isinstance(c_data, dict):
-                            p_raw = str(c_data.get('phone') or c_data.get('number') or c_data.get('mobile') or '')
-                            clean_p = re.sub(r'[\s\-]', '', p_raw)
-                            m_match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', clean_p)
-                            if m_match:
-                                phone_number = m_match.group(1) or m_match.group(2)
-
-                        if not phone_number:
-                            msg_endpoint = f"{base_url}messages/{cid}.json"
-                            if query:
-                                msg_endpoint += f"?{query}"
-                            try:
-                                m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
-                                msgs = m_res.json() or {}
-                                for m_val in msgs.values():
-                                    if isinstance(m_val, dict):
-                                        body = str(m_val.get("body") or m_val.get("message") or "")
-                                        clean_txt = re.sub(r'[\s\-]', '', body)
-                                        match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', clean_txt)
-                                        if match:
-                                            phone_number = match.group(1) or match.group(2)
-                                            break
-                            except Exception:
-                                pass
+                        text_data = str(msgs)
+                        cleaned_text = re.sub(r'[\s\-]', '', text_data)
+                        match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', cleaned_text)
+                        if match:
+                            phone_number = match.group(1) or match.group(2)
 
                         if not phone_number:
                             continue
