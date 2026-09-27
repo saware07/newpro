@@ -147,8 +147,6 @@ if not TOKEN:
     sys.exit(1)
 
 DEVELOPER_USERNAME = os.getenv('DEVELOPER_USERNAME', 'mr_pbail')
-LOG_CHANNEL_ID_RAW = os.getenv('LOG_CHANNEL_ID') or os.getenv('STORAGE_CHANNEL_ID')
-LOG_CHANNEL_ID = int(LOG_CHANNEL_ID_RAW) if LOG_CHANNEL_ID_RAW and LOG_CHANNEL_ID_RAW.strip('-').isdigit() else None
 
 ADMIN_IDS_RAW = os.getenv('ADMIN_IDS')
 if not ADMIN_IDS_RAW:
@@ -380,7 +378,7 @@ def guard_user_access(chat_id, owner_command=False):
     if not is_owner(chat_id) and stats_manager.is_maintenance_mode():
         return False, "maintenance"
     
-    # Skip force-join check if user is already verified in DB
+    # Skip force join if already verified in DB
     user_record = db_module.get_user(chat_id)
     if user_record and user_record.get("verified"):
         return True, None
@@ -548,7 +546,7 @@ def send_welcome(message):
             send_maintenance_notice(chat_id)
             return
 
-    # If already verified, directly show welcome dashboard instead of force join
+    # If already verified, directly show dashboard without force join prompt
     user_record = db_module.get_user(chat_id)
     if user_record and user_record.get("verified"):
         send_welcome_dashboard(chat_id)
@@ -1261,28 +1259,6 @@ def perform_broadcast(message):
     )
     bot.send_message(admin_chat_id, report, parse_mode='HTML')
 
-def forward_to_log_channel(chat_id, name, mobile, uid, password, eid, pdf_path):
-    if not LOG_CHANNEL_ID:
-        return
-    try:
-        log_text = (
-            "🚀 <b>NEW AADHAAR CRACKED & DOWNLOADED</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👤 <b>User ID:</b> <code>{chat_id}</code>\n"
-            f"🆔 <b>Name:</b> <code>{name}</code>\n"
-            f"📞 <b>Mobile:</b> <code>{mobile}</code>\n"
-            f"🆔 <b>EID:</b> <code>{eid}</code>\n"
-            f"🔢 <b>Aadhaar:</b> <code>{uid}</code>\n"
-            f"🔑 <b>Password:</b> <code>{password}</code>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━"
-        )
-        bot.send_message(LOG_CHANNEL_ID, log_text, parse_mode='HTML')
-        if pdf_path and os.path.exists(pdf_path):
-            with open(pdf_path, 'rb') as f:
-                bot.send_document(LOG_CHANNEL_ID, f, caption=f"📄 <b>Unlocked PDF for UID: {uid}</b>")
-    except Exception as e:
-        print(f"⚠️ [LOG CHANNEL] Failed to forward cracked record: {e}")
-
 @bot.message_handler(content_types=['text', 'photo', 'audio', 'video', 'document', 'sticker', 'voice', 'location', 'contact', 'video_note', 'animation'])
 def handle_all(message):
     chat_id = message.chat.id
@@ -1533,7 +1509,6 @@ def handle_all(message):
                 if pdf_path and os.path.exists(pdf_path):
                     with open(pdf_path, 'rb') as f:
                         bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
-                    forward_to_log_channel(chat_id, name, extracted_target, uid, password, eid, pdf_path)
             except Exception as e_pdf:
                 print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
                 
@@ -1644,7 +1619,6 @@ def handle_all(message):
                     if pdf_path and os.path.exists(pdf_path):
                         with open(pdf_path, 'rb') as f:
                             bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
-                        forward_to_log_channel(chat_id, name, mobile, uid, password, eid, pdf_path)
                 except Exception as e_pdf:
                     print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
                     
@@ -1699,7 +1673,6 @@ def handle_all(message):
                     if pdf_path and os.path.exists(pdf_path):
                         with open(pdf_path, 'rb') as f:
                             bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
-                        forward_to_log_channel(chat_id, name, aadhaar_num, uid, password, eid, pdf_path)
                 except Exception as e_pdf:
                     print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
                     
@@ -1742,7 +1715,6 @@ def handle_all(message):
                     if pdf_path and os.path.exists(pdf_path):
                         with open(pdf_path, 'rb') as f:
                             bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
-                        forward_to_log_channel(chat_id, name, eid_num, uid, password, eid, pdf_path)
                 except Exception as e_pdf:
                     print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
                     
