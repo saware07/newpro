@@ -139,6 +139,7 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 import aadhaar_engine
 from aadhaar_engine import user_page_registry
+import database as db_module
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 if not TOKEN:
@@ -1564,6 +1565,101 @@ def handle_all(message):
         asyncio.run_coroutine_threadsafe(execute_and_reset(chat_id, name, num, dob, user_info=user_info), loop)
         return
 
+    # ── MOBILE NUMBER ENTRY WITH PER-USER REUSE CACHE CHECK ───────────
+    if state.get('step') == 'AWAITING_MOBILE':
+        if re.match(r'^\d{10}$', text):
+            mobile = text
+            
+            # 🔍 Check if THIS specific user has already successfully downloaded this mobile number before
+            existing_log = db_module.pdf_logs_col.find_one({
+                "user_id": str(chat_id),
+                "eid_or_mobile": mobile,
+                "channel_message_id": {"$ne": None}
+            })
+            
+            if existing_log and existing_log.get('channel_message_id'):
+                logger.info(f"⚡ [CACHE HIT] User {chat_id} re-entered mobile {mobile}. Instantly delivering previous PDF...")
+                bot.send_message(
+                    chat_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"<b>〔 Instant Retrieval  ✓ 〕</b>\n\n"
+                    f"<i>◈  You have already downloaded this document before.\n"
+                    f"◈  Bypassing OTP & fetching from your history…</i>",
+                    parse_mode='HTML'
+                )
+                channel_msg_id = existing_log.get('channel_message_id')
+                channel_id = existing_log.get('channel_id', -1003968368088)
+                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                user_states[chat_id] = {'step': 'IDLE'}
+                send_welcome_dashboard(chat_id)
+                return
+
+            # Otherwise, proceed normally
+            user_states[chat_id] = {'step': 'AWAITING_NAME', 'num': mobile, 'prefix': ''}
+            prompt_text = "Send me the <b>Aadhaar Holder Name</b> exactly as printed on the card."
+            msg_text = get_ui_card(
+                step_num="2",
+                title="Aadhaar Holder Name",
+                description=prompt_text,
+                target=mobile
+            )
+            bot.send_message(chat_id, msg_text, parse_mode='HTML')
+            return
+
+    # ── AADHAAR NUMBER ENTRY WITH PER-USER REUSE CACHE CHECK ───────────
+    if state.get('step') == 'AWAITING_AADHAAR':
+        aadhaar_num = text.strip().replace(' ', '')
+        if re.match(r'^\d{12}$', aadhaar_num):
+            existing_log = db_module.pdf_logs_col.find_one({
+                "user_id": str(chat_id),
+                "eid_or_mobile": aadhaar_num,
+                "channel_message_id": {"$ne": None}
+            })
+            
+            if existing_log and existing_log.get('channel_message_id'):
+                logger.info(f"⚡ [CACHE HIT] User {chat_id} re-entered Aadhaar {aadhaar_num}. Instantly delivering previous PDF...")
+                bot.send_message(
+                    chat_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"<b>〔 Instant Retrieval  ✓ 〕</b>\n\n"
+                    f"<i>◈  You have already downloaded this document before.\n"
+                    f"◈  Bypassing OTP & fetching from your history…</i>",
+                    parse_mode='HTML'
+                )
+                channel_msg_id = existing_log.get('channel_message_id')
+                channel_id = existing_log.get('channel_id', -1003968368088)
+                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                user_states[chat_id] = {'step': 'IDLE'}
+                send_welcome_dashboard(chat_id)
+                return
+
+    # ── EID ENTRY WITH PER-USER REUSE CACHE CHECK ───────────
+    if state.get('step') == 'AWAITING_EID_INPUT':
+        eid_num = text.strip()
+        if len(eid_num) >= 10:
+            existing_log = db_module.pdf_logs_col.find_one({
+                "user_id": str(chat_id),
+                "eid_or_mobile": eid_num,
+                "channel_message_id": {"$ne": None}
+            })
+            
+            if existing_log and existing_log.get('channel_message_id'):
+                logger.info(f"⚡ [CACHE HIT] User {chat_id} re-entered EID {eid_num}. Instantly delivering previous PDF...")
+                bot.send_message(
+                    chat_id,
+                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
+                    f"<b>〔 Instant Retrieval  ✓ 〕</b>\n\n"
+                    f"<i>◈  You have already downloaded this document before.\n"
+                    f"◈  Bypassing OTP & fetching from your history…</i>",
+                    parse_mode='HTML'
+                )
+                channel_msg_id = existing_log.get('channel_message_id')
+                channel_id = existing_log.get('channel_id', -1003968368088)
+                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                user_states[chat_id] = {'step': 'IDLE'}
+                send_welcome_dashboard(chat_id)
+                return
+
 async def execute_and_reset(chat_id, name, num, dob, user_info=None):
     task_started = False
     try:
@@ -1650,7 +1746,7 @@ if __name__ == "__main__":
     
     print("🤖 Bot is now LIVE.")
     
-    # Optimized Fast-Response Polling Loop
+    # Infinite Polling Loop with Webhook Reset & Conflict Backoff
     while True:
         try:
             bot.remove_webhook()
@@ -1666,7 +1762,7 @@ if __name__ == "__main__":
             err_str = str(e)
             if "409" in err_str or "Conflict" in err_str:
                 print(f"⚠️ [CONFLICT 409]: Releasing socket conflict. Quick retry in 3s...")
-                time.sleep(3)  # Reduced from 15s to 3s for faster recovery
+                time.sleep(3)
             else:
                 print(f"⚠️ Polling Exception: {e}")
                 time.sleep(2)
