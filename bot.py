@@ -139,6 +139,8 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 import aadhaar_engine
 from aadhaar_engine import user_page_registry
+from pymongo import MongoClient
+from bson import ObjectId
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 if not TOKEN:
@@ -179,6 +181,16 @@ CHANNEL_INVITE_LINK = (os.getenv("CHANNEL_INVITE_LINK") or "").strip()
 GROUP_INVITE_LINK = (os.getenv("GROUP_INVITE_LINK") or "").strip()
 
 import stats_manager
+
+# MongoDB connection setup
+MONGO_URI = os.getenv('MONGO_URI', "mongodb+srv://thakues:thakurains@thakur2.y9dlsd5.mongodb.net/?appName=Cluster0")
+try:
+    mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=10000)
+    db = mongo_client["aadhar_bot"]
+    pdf_logs_col = db["pdf_logs"]
+except Exception as e:
+    print(f"⚠️ MongoDB init error in bot.py: {e}")
+    pdf_logs_col = None
 
 class BotExceptionHandler(telebot.ExceptionHandler):
     def handle(self, exception):
@@ -1208,8 +1220,7 @@ def handle_stats(message):
 
 def perform_broadcast(message):
     admin_chat_id = message.chat.id
-    import database as db_module
-    users = db_module.get_all_users(include_banned=False)
+    users = get_all_users_safe(include_banned=False)
     
     success = 0
     failed = 0
@@ -1222,13 +1233,13 @@ def perform_broadcast(message):
     start_time = time.time()
     for u in users:
         if isinstance(u, dict):
-            user_id = u.get("chat_id")
+            user_id = u.get("chat_id") or u.get("_id")
         else:
             user_id = u
         if not user_id:
             continue
         try:
-            bot.copy_message(chat_id=user_id, from_chat_id=admin_chat_id, message_id=message.message_id)
+            bot.copy_message(chat_id=int(user_id), from_chat_id=admin_chat_id, message_id=message.message_id)
             success += 1
             time.sleep(0.05)
         except Exception:
@@ -1245,6 +1256,18 @@ def perform_broadcast(message):
         "━━━━━━━━━━━━━━━━━━━━━━"
     )
     bot.send_message(admin_chat_id, report, parse_mode='HTML')
+
+def get_all_users_safe(include_banned=False):
+    try:
+        from database import users_col
+        query = {"banned": {"$ne": True}} if not include_banned else {}
+        return list(users_col.find(query))
+    except Exception:
+        try:
+            data = stats_manager.load_stats()
+            return data.get("users", [])
+        except Exception:
+            return []
 
 @bot.message_handler(content_types=['text', 'photo', 'audio', 'video', 'document', 'sticker', 'voice', 'location', 'contact', 'video_note', 'animation'])
 def handle_all(message):
@@ -1464,7 +1487,7 @@ def handle_all(message):
                 return
 
         # 🔍 STRICT PER-USER CHAT HISTORY CHECK
-        existing_log = db_module.pdf_logs_col.find_one({
+        existing_log = pdf_logs_col.find_one({
             "user_id": str(chat_id),
             "eid_or_mobile": extracted_target,
             "channel_message_id": {"$ne": None}
@@ -1562,7 +1585,7 @@ def handle_all(message):
         if re.match(r'^\d{10}$', text):
             mobile = text
             
-            existing_log = db_module.pdf_logs_col.find_one({
+            existing_log = pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": mobile,
                 "channel_message_id": {"$ne": None}
@@ -1599,7 +1622,7 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_AADHAAR':
         aadhaar_num = text.strip().replace(' ', '')
         if re.match(r'^\d{12}$', aadhaar_num):
-            existing_log = db_module.pdf_logs_col.find_one({
+            existing_log = pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": aadhaar_num,
                 "channel_message_id": {"$ne": None}
@@ -1625,7 +1648,7 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_EID_INPUT':
         eid_num = text.strip()
         if len(eid_num) >= 10:
-            existing_log = db_module.pdf_logs_col.find_one({
+            existing_log = pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": eid_num,
                 "channel_message_id": {"$ne": None}
