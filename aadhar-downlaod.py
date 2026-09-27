@@ -13,13 +13,54 @@ CAPTCHA_URL = f"{BASE_URL}/audioCaptchaService/api/captcha/v3/generation"
 OTP_URL = f"{BASE_URL}/unifiedAppAuthService/api/v2/generate/aadhaar/otp"
 DOWNLOAD_URL = f"{BASE_URL}/downloadAadhaarService/api/aadhaar/download"
 
+_ocr_solver = ddddocr.DdddOcr(show_ad=False)
+_ocr_solver_beta = ddddocr.DdddOcr(beta=True, show_ad=False)
+
+def solve_captcha(image_bytes):
+    """Advanced captcha solver with PIL preprocessing for UIDAI images."""
+    try:
+        import io
+        from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+        
+        for attempt in range(2):
+            try:
+                img = Image.open(io.BytesIO(image_bytes))
+                if img.mode != 'L':
+                    img = img.convert('L')
+                
+                w, h = img.size
+                img = img.resize((w * 2, h * 2), Image.LANCZOS)
+                img = img.filter(ImageFilter.MedianFilter(size=3))
+                img = ImageEnhance.Contrast(img).enhance(2.0)
+                img = ImageEnhance.Sharpness(img).enhance(2.0)
+                img = img.point(lambda p: 255 if p > 140 else 0)
+                img = ImageOps.autocontrast(img, cutoff=5)
+                
+                buf = io.BytesIO()
+                img.save(buf, format='PNG', optimize=True)
+                processed = buf.getvalue()
+                
+                result = _ocr_solver_beta.classification(processed)
+                if result and len(result) >= 4:
+                    result = ''.join(c for c in result if c.isalnum())
+                    if len(result) >= 4:
+                        return result[:6]
+            except Exception:
+                pass
+    except Exception:
+        pass
+    
+    # Fallback to standard OCR
+    res = _ocr_solver.classification(image_bytes)
+    return str(res or '').strip()
+
 def run_download(eid, chat_id):
     from uidai_http import make_uidai_session
     session = make_uidai_session(retries=0)
     
     request_id = str(uuid.uuid4())
 
-    # Browser-like strict headers
+    # Browser-like strict headers matching Phase 1
     headers = {
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "en_IN",
@@ -28,14 +69,14 @@ def run_download(eid, chat_id):
         "x-request-id": request_id,
         "Origin": "https://myaadhaar.uidai.gov.in",
         "Referer": "https://myaadhaar.uidai.gov.in/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
-        "sec-ch-ua": '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
+        "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36",
+        "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+        "sec-ch-ua-mobile": "?1",
+        "sec-ch-ua-platform": '"Android"',
         "Connection": "keep-alive"
     }
 
-    print("--- STEP 1: Fetching Captcha ---")
+    print("--- STEP 1: Fetching Download Captcha ---")
     captcha_payload = {
         "captchaLength": "6", 
         "captchaType": "2", 
@@ -50,6 +91,7 @@ def run_download(eid, chat_id):
     attempt = 1
     captcha_attempts = 0
     max_captcha_attempts = 15
+
     while attempt <= max_captcha_retries and captcha_attempts < max_captcha_attempts:
         captcha_attempts += 1
         try:
@@ -66,7 +108,6 @@ def run_download(eid, chat_id):
             img_b64 = cap_data['imageBase64']
             cap_txn_id = cap_data['transactionId']
 
-            # Solve captcha with ddddocr
             img_bytes = base64.b64decode(img_b64)
             if attempt >= 3:
                 print(f"🔑 MANUAL CAPTCHA REQUIRED | {img_b64}")
@@ -75,9 +116,7 @@ def run_download(eid, chat_id):
                 if not captcha_val:
                     raise Exception("No manual captcha entered.")
             else:
-                ocr = ddddocr.DdddOcr(show_ad=False)
-                res = ocr.classification(img_bytes)
-                captcha_val = str(res or '').strip()
+                captcha_val = solve_captcha(img_bytes)
                 captcha_val = re.sub(r'[^a-zA-Z0-9]', '', captcha_val)
                 
                 if len(captcha_val) != 6:
@@ -86,7 +125,7 @@ def run_download(eid, chat_id):
                 
             print(f"Decoded Captcha: {captcha_val}")
             
-            # Request OTP
+            # Request Download OTP
             otp_payload = {
                 "eidNumber": eid,
                 "idType": "eid",
@@ -112,8 +151,7 @@ def run_download(eid, chat_id):
                 if msg:
                     last_server_msg = msg
                 if msg and "technical difficulties" in msg.lower():
-                    raise Exception(f"⚠️ UIDAI portal is temporarily facing technical difficulties with this number. Please try again after 1 hour or try with another number. ||| Real Server Response: {msg}")
-                # Captcha issue, loop continues to retry
+                    raise Exception(f"⚠️ UIDAI portal is temporarily facing technical difficulties. Please try again later. ||| Real Server Response: {msg}")
                 attempt += 1
         except Exception as ex:
             if attempt == max_captcha_retries or captcha_attempts == max_captcha_attempts:
@@ -139,7 +177,6 @@ def run_download(eid, chat_id):
         "otpTxnId": otp_txn_id
     }
 
-    # Add transactionId in headers specifically for the download endpoint
     download_headers = headers.copy()
     download_headers["transactionId"] = request_id
 
@@ -149,11 +186,8 @@ def run_download(eid, chat_id):
 
     if dl_data.get('status') == "Success":
         pdf_b64 = dl_data['data']['aadhaarPdf']
-        
-        # Decode base64 PDF
         pdf_bytes = base64.b64decode(pdf_b64)
         
-        # Save to cracked_aadhar folder
         script_dir = os.path.dirname(os.path.abspath(__file__))
         cracked_dir = os.path.join(script_dir, "cracked_aadhar")
         os.makedirs(cracked_dir, exist_ok=True)
