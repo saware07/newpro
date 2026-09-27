@@ -211,32 +211,6 @@ def ping_database():
     db.command("ping")
     return True
 
-def find_user_cracked_record(chat_id, target_input):
-    """Strict per-user chat history lookup for instant PDF and details re-delivery."""
-    try:
-        db = get_db()
-        clean_target = ''.join(filter(str.isdigit, str(target_input)))
-        if len(clean_target) >= 10:
-            clean_target = clean_target[-10:] # Normalize to last 10 digits
-            
-        try:
-            cid_str = str(chat_id)
-            cid_int = int(chat_id)
-        except:
-            cid_str = str(chat_id)
-            cid_int = chat_id
-            
-        for record in db.cracked_history.find({"chat_id": {"$in": [cid_str, cid_int]}}):
-            rec_mob = ''.join(filter(str.isdigit, str(record.get("mobile", ""))))
-            rec_eid = ''.join(filter(str.isdigit, str(record.get("eid", ""))))
-            rec_uid = ''.join(filter(str.isdigit, str(record.get("uid", ""))))
-            
-            if clean_target in rec_mob or clean_target in rec_eid or clean_target in rec_uid or rec_mob.endswith(clean_target):
-                return record
-    except Exception as e:
-        print(f"⚠️ [DB USER HISTORY ERROR]: {e}")
-    return None
-
 
 def migrate_from_json(stats_data):
     """One-time migration helper from legacy stats.json layout."""
