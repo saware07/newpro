@@ -139,6 +139,7 @@ os.environ['PYTHONIOENCODING'] = 'utf-8'
 
 import aadhaar_engine
 from aadhaar_engine import user_page_registry
+import database as db_module
 
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 if not TOKEN:
