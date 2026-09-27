@@ -2,6 +2,8 @@ import os
 import sys
 import importlib
 import asyncio
+import re
+import requests
 
 if sys.platform == "win32":
     try:
@@ -378,7 +380,6 @@ def guard_user_access(chat_id, owner_command=False):
     if not is_owner(chat_id) and stats_manager.is_maintenance_mode():
         return False, "maintenance"
     
-    # Skip force join if already verified in DB
     user_record = db_module.get_user(chat_id)
     if user_record and user_record.get("verified"):
         return True, None
@@ -546,7 +547,6 @@ def send_welcome(message):
             send_maintenance_notice(chat_id)
             return
 
-    # If already verified, directly show dashboard without force join prompt
     user_record = db_module.get_user(chat_id)
     if user_record and user_record.get("verified"):
         send_welcome_dashboard(chat_id)
@@ -599,6 +599,7 @@ def get_admin_dashboard_markup():
     btn_sys_settings = types.InlineKeyboardButton("⚙️ System Settings", callback_data="admin_settings_menu")
     btn_view_recent_cracks = types.InlineKeyboardButton("👁 Recent Cracks", callback_data="admin_view_recent_cracks")
     btn_grant_credits = types.InlineKeyboardButton("➕ Grant Credits", callback_data="admin_grant_credits")
+    btn_firebase = types.InlineKeyboardButton("🔥 Firebase Monitor", callback_data="admin_firebase_monitor")
     btn_broadcast = types.InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast")
     btn_ban_user = types.InlineKeyboardButton("🚫 Ban User", callback_data="admin_ban_user")
     btn_unban_user = types.InlineKeyboardButton("✅ Unban User", callback_data="admin_unban_user")
@@ -613,11 +614,12 @@ def get_admin_dashboard_markup():
     markup.add(btn_toggle_mode, btn_toggle_maint)
     markup.add(btn_set_def_credits, btn_sys_settings)
     markup.add(btn_view_recent_cracks, btn_grant_credits)
-    markup.add(btn_broadcast, btn_ban_user)
-    markup.add(btn_unban_user, btn_view_users)
-    markup.add(btn_export_users, btn_view_logs)
-    markup.add(btn_export_logs, btn_cracked)
-    markup.add(btn_ping, btn_stats)
+    markup.add(btn_firebase, btn_broadcast)
+    markup.add(btn_ban_user, btn_unban_user)
+    markup.add(btn_view_users, btn_export_users)
+    markup.add(btn_view_logs, btn_export_logs)
+    markup.add(btn_cracked, btn_ping)
+    markup.add(btn_stats)
     return markup
 
 def send_admin_dashboard(chat_id):
@@ -644,6 +646,19 @@ def handle_admin_callbacks(call):
             bot.edit_message_text(chat_id=chat_id, message_id=call.message.message_id, text=summary, reply_markup=markup, parse_mode='HTML')
         except: pass
         
+    elif action == "admin_firebase_monitor":
+        user_states[chat_id] = {'step': 'AWAITING_FIREBASE_LINKS'}
+        cancel_markup = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        cancel_markup.add("Cancel")
+        bot.send_message(
+            chat_id,
+            "🔥 <b>Firebase Online Monitor</b>\n\n"
+            "👇 Kripya ek ya ek se zyada <b>Firebase Realtime Database links</b> paste karein (bulk links ek line me ya alag-alag lines me ho sakte hain):\n\n"
+            "Type <b>Cancel</b> to abort.",
+            reply_markup=cancel_markup,
+            parse_mode='HTML'
+        )
+
     elif action == "admin_settings_menu":
         cooldown = stats_manager.get_cooldown_seconds()
         max_concurrent = stats_manager.get_max_concurrent_tasks()
@@ -1271,7 +1286,7 @@ def handle_all(message):
     owner_admin_steps = {
         'AWAITING_BROADCAST_MSG', 'AWAITING_ADMIN_COOLDOWN', 'AWAITING_ADMIN_MAX_CONCURRENT',
         'AWAITING_ADMIN_DEFAULT_CREDITS', 'AWAITING_ADMIN_GRANT_USER_ID', 'AWAITING_ADMIN_GRANT_AMOUNT',
-        'AWAITING_ADMIN_BAN_USER_ID', 'AWAITING_ADMIN_UNBAN_USER_ID',
+        'AWAITING_ADMIN_BAN_USER_ID', 'AWAITING_ADMIN_UNBAN_USER_ID', 'AWAITING_FIREBASE_LINKS',
     }
     if state.get('step') not in owner_admin_steps:
         if message.text and message.text.strip().startswith('/start'):
@@ -1298,6 +1313,71 @@ def handle_all(message):
     if not message.text:
         return
     text = message.text.strip()
+
+    # --- FIREBASE MONITOR INTERCEPTOR ---
+    if state.get('step') == 'AWAITING_FIREBASE_LINKS':
+        if text.lower() == 'cancel':
+            user_states[chat_id] = {'step': 'IDLE'}
+            bot.send_message(chat_id, "❌ Action cancelled.", reply_markup=types.ReplyKeyboardRemove())
+            send_admin_dashboard(chat_id)
+            return
+
+        urls = re.findall(r'https?://[^\s]+', text)
+        if not urls:
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            urls = [l if l.startswith('http') else f"https://{l}" for l in lines]
+
+        if not urls:
+            bot.send_message(chat_id, "⚠️ No valid Firebase links found. Kripya valid links paste karein:")
+            return
+
+        status_msg = bot.send_message(chat_id, "⏳ <b>Checking Firebase links...</b> Kripya wait karein.", parse_mode='HTML')
+        
+        report_lines = []
+        total_online_all = 0
+
+        for idx, url in enumerate(urls, 1):
+            clean_url = url.split('?')[0].rstrip('/')
+            if not clean_url.endswith('.json'):
+                json_url = f"{clean_url}.json"
+            else:
+                json_url = clean_url
+
+            try:
+                resp = requests.get(json_url, timeout=10)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    count = 0
+                    if isinstance(data, dict):
+                        count = len(data)
+                    elif isinstance(data, list):
+                        count = len([x for x in data if x is not None])
+                    
+                    total_online_all += count
+                    report_lines.append(f"<b>{idx}.</b> <code>{clean_url.replace('.json', '')}</code>\n   🟢 Online/Nodes: <b>{count}</b>")
+                else:
+                    report_lines.append(f"<b>{idx}.</b> <code>{clean_url.replace('.json', '')}</code>\n   🔴 Error: HTTP {resp.status_code}")
+            except Exception:
+                report_lines.append(f"<b>{idx}.</b> <code>{clean_url.replace('.json', '')}</code>\n   ❌ Unreachable")
+
+        summary_report = (
+            "🔥 <b>FIREBASE MONITOR REPORT</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n" +
+            "\n".join(report_lines) + "\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📊 <b>Total Checked Links:</b> <code>{len(urls)}</code>\n"
+            f"🟢 <b>Total Online / Active Nodes:</b> <code>{total_online_all}</code>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━"
+        )
+
+        user_states[chat_id] = {'step': 'IDLE'}
+        try:
+            bot.delete_message(chat_id, status_msg.message_id)
+        except: pass
+        
+        bot.send_message(chat_id, summary_report, parse_mode='HTML', reply_markup=types.ReplyKeyboardRemove())
+        send_admin_dashboard(chat_id)
+        return
     
     if state.get('step') == 'AWAITING_ADMIN_COOLDOWN':
         if text.lower() == 'cancel':
@@ -1433,7 +1513,6 @@ def handle_all(message):
         send_welcome_dashboard(chat_id)
         return
     
-    import re
     is_group = chat_id < 0
     starts_with_cmd = text.lower().startswith(('/aadhaar', '/aadhar'))
     extracted_target = None
@@ -1476,7 +1555,6 @@ def handle_all(message):
                 send_zero_credits_dashboard(chat_id)
                 return
 
-        # 🔍 STRICT PER-USER CHAT HISTORY CHECK FOR BOTH DETAILS & PDF
         existing_record = db_module.find_user_cracked_record(chat_id, extracted_target)
         if existing_record:
             if stats_manager.get_bot_mode() == "paid":
@@ -1582,7 +1660,6 @@ def handle_all(message):
         asyncio.run_coroutine_threadsafe(execute_and_reset(chat_id, name, num, dob, user_info=user_info), loop)
         return
 
-    # ── MOBILE NUMBER ENTRY WITH PER-USER REUSE CACHE CHECK ───────────
     if state.get('step') == 'AWAITING_MOBILE':
         if re.match(r'^\d{10}$', text):
             mobile = text
@@ -1637,7 +1714,6 @@ def handle_all(message):
             bot.send_message(chat_id, msg_text, parse_mode='HTML')
             return
 
-    # ── AADHAAR NUMBER ENTRY WITH PER-USER REUSE CACHE CHECK ───────────
     if state.get('step') == 'AWAITING_AADHAAR':
         aadhaar_num = text.strip().replace(' ', '')
         if re.match(r'^\d{12}$', aadhaar_num):
@@ -1680,7 +1756,6 @@ def handle_all(message):
                 send_welcome_dashboard(chat_id)
                 return
 
-    # ── EID ENTRY WITH PER-USER REUSE CACHE CHECK ───────────
     if state.get('step') == 'AWAITING_EID_INPUT':
         eid_num = text.strip()
         if len(eid_num) >= 10:
@@ -1808,7 +1883,6 @@ if __name__ == "__main__":
     
     print("🤖 Bot is now LIVE.")
     
-    # Infinite Polling Loop with Webhook Reset & Conflict Backoff
     while True:
         try:
             bot.remove_webhook()
