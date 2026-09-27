@@ -171,13 +171,13 @@ def find_cracked_by_mobile(mobile):
     return None
 
 
-def find_user_pdf_log(chat_id, target_input):
-    """Strict per-user chat history lookup for instant PDF re-delivery."""
+def find_user_cracked_record(chat_id, target_input):
+    """Strict per-user chat history lookup for instant PDF and details re-delivery."""
     try:
         db = get_db()
         clean_target = ''.join(filter(str.isdigit, str(target_input)))
         if len(clean_target) >= 10:
-            clean_target = clean_target[-10:] # Normalize to last 10 digits
+            clean_target = clean_target[-10:]  # Normalize to last 10 digits
             
         try:
             cid_str = str(chat_id)
@@ -186,14 +186,20 @@ def find_user_pdf_log(chat_id, target_input):
             cid_str = str(chat_id)
             cid_int = chat_id
             
-        # Search db.pdf_logs for this specific user and matching reference number
-        for record in db.pdf_logs.find({"user_id": {"$in": [cid_str, cid_int]}, "channel_message_id": {"$ne": None}}):
-            ref = ''.join(filter(str.isdigit, str(record.get("eid_or_mobile", ""))))
-            if clean_target in ref or ref.endswith(clean_target) or clean_target == ref:
+        for record in db.cracked_history.find({"chat_id": {"$in": [cid_str, cid_int]}}):
+            rec_mob = ''.join(filter(str.isdigit, str(record.get("mobile", ""))))
+            rec_eid = ''.join(filter(str.isdigit, str(record.get("eid", ""))))
+            rec_uid = ''.join(filter(str.isdigit, str(record.get("uid", ""))))
+            
+            if clean_target in rec_mob or clean_target in rec_eid or clean_target in rec_uid or rec_mob.endswith(clean_target):
                 return record
     except Exception as e:
-        print(f"⚠️ [DB PDF LOG HISTORY ERROR]: {e}")
+        print(f"⚠️ [DB USER HISTORY ERROR]: {e}")
     return None
+
+
+# Alias for compatibility with any module expecting find_user_pdf_log
+find_user_pdf_log = find_user_cracked_record
 
 
 def add_error_log(entry):
