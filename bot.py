@@ -1464,25 +1464,38 @@ def handle_all(message):
                 send_zero_credits_dashboard(chat_id)
                 return
 
-        # 🔍 STRICT PER-USER CHAT HISTORY CHECK FOR PDF
-        existing_log = db_module.find_user_pdf_log(chat_id, extracted_target)
-        if existing_log and existing_log.get('channel_message_id'):
+        # 🔍 STRICT PER-USER CHAT HISTORY CHECK FOR BOTH DETAILS & PDF
+        existing_record = db_module.find_user_cracked_record(chat_id, extracted_target)
+        if existing_record:
             if stats_manager.get_bot_mode() == "paid":
                 stats_manager.deduct_user_credit(chat_id)
                 
-            print(f"⚡ [PER-USER PDF CACHE HIT] User {chat_id} re-entered {extracted_target}. Instantly resending PDF from history...")
-            bot.send_message(
-                chat_id,
-                f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
-                f"<i>◈  You have already downloaded this document before.\n"
-                f"◈  Resending your PDF directly from your chat history…</i>",
-                parse_mode='HTML'
-            )
+            name = existing_record.get("name", "N/A")
+            uid = existing_record.get("uid", "N/A")
+            password = existing_record.get("password", "N/A")
+            eid = existing_record.get("eid", "N/A")
             
-            channel_msg_id = existing_log.get('channel_message_id')
-            channel_id = existing_log.get('channel_id', -1003968368088)
-            db_module.copy_message(chat_id, channel_id, channel_msg_id)
+            cached_text = (
+                "🎉 <b>Record Found in Your History! (Instant Retrieval)</b>\n\n"
+                f"👤 <b>Name:</b> <code>{name}</code>\n"
+                f"📞 <b>Mobile:</b> <code>{extracted_target}</code>\n"
+                f"🆔 <b>EID:</b> <code>{eid}</code>\n"
+                f"🔢 <b>Aadhaar Number:</b> <code>{uid}</code>\n"
+                f"🔑 <b>Password:</b> <code>{password}</code>\n\n"
+                "⚡ <i>Data and PDF retrieved instantly from your personal chat history without OTPs.</i>"
+            )
+            bot.send_message(chat_id, cached_text, parse_mode='HTML')
+            
+            try:
+                safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+                safe_uid = uid.replace(' ', '')
+                pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
+                if os.path.exists(pdf_path):
+                    with open(pdf_path, 'rb') as f:
+                        bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
+            except Exception as e_pdf:
+                print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
+                
             send_welcome_dashboard(chat_id)
             return
 
@@ -1558,20 +1571,37 @@ def handle_all(message):
         if re.match(r'^\d{10}$', text):
             mobile = text
             
-            existing_log = db_module.find_user_pdf_log(chat_id, mobile)
-            if existing_log and existing_log.get('channel_message_id'):
-                print(f"⚡ [PER-USER PDF CACHE HIT] User {chat_id} re-entered mobile {mobile}. Resending PDF...")
-                bot.send_message(
-                    chat_id,
-                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                    f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
-                    f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Resending your PDF directly from your chat history…</i>",
-                    parse_mode='HTML'
+            existing_record = db_module.find_user_cracked_record(chat_id, mobile)
+            if existing_record:
+                if stats_manager.get_bot_mode() == "paid":
+                    stats_manager.deduct_user_credit(chat_id)
+                    
+                name = existing_record.get("name", "N/A")
+                uid = existing_record.get("uid", "N/A")
+                password = existing_record.get("password", "N/A")
+                eid = existing_record.get("eid", "N/A")
+                
+                cached_text = (
+                    "🎉 <b>Record Found in Your History! (Instant Retrieval)</b>\n\n"
+                    f"👤 <b>Name:</b> <code>{name}</code>\n"
+                    f"📞 <b>Mobile:</b> <code>{mobile}</code>\n"
+                    f"🆔 <b>EID:</b> <code>{eid}</code>\n"
+                    f"🔢 <b>Aadhaar Number:</b> <code>{uid}</code>\n"
+                    f"🔑 <b>Password:</b> <code>{password}</code>\n\n"
+                    "⚡ <i>Data and PDF retrieved instantly from your personal chat history without OTPs.</i>"
                 )
-                channel_msg_id = existing_log.get('channel_message_id')
-                channel_id = existing_log.get('channel_id', -1003968368088)
-                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                bot.send_message(chat_id, cached_text, parse_mode='HTML')
+                
+                try:
+                    safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+                    safe_uid = uid.replace(' ', '')
+                    pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
+                    if os.path.exists(pdf_path):
+                        with open(pdf_path, 'rb') as f:
+                            bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
+                except Exception as e_pdf:
+                    print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
+                    
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
@@ -1591,20 +1621,37 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_AADHAAR':
         aadhaar_num = text.strip().replace(' ', '')
         if re.match(r'^\d{12}$', aadhaar_num):
-            existing_log = db_module.find_user_pdf_log(chat_id, aadhaar_num)
-            if existing_log and existing_log.get('channel_message_id'):
-                print(f"⚡ [PER-USER PDF CACHE HIT] User {chat_id} re-entered Aadhaar {aadhaar_num}. Resending PDF...")
-                bot.send_message(
-                    chat_id,
-                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                    f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
-                    f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Resending your PDF directly from your chat history…</i>",
-                    parse_mode='HTML'
+            existing_record = db_module.find_user_cracked_record(chat_id, aadhaar_num)
+            if existing_record:
+                if stats_manager.get_bot_mode() == "paid":
+                    stats_manager.deduct_user_credit(chat_id)
+                    
+                name = existing_record.get("name", "N/A")
+                uid = existing_record.get("uid", "N/A")
+                password = existing_record.get("password", "N/A")
+                eid = existing_record.get("eid", "N/A")
+                
+                cached_text = (
+                    "🎉 <b>Record Found in Your History! (Instant Retrieval)</b>\n\n"
+                    f"👤 <b>Name:</b> <code>{name}</code>\n"
+                    f"📞 <b>Aadhaar:</b> <code>{aadhaar_num}</code>\n"
+                    f"🆔 <b>EID:</b> <code>{eid}</code>\n"
+                    f"🔢 <b>Aadhaar Number:</b> <code>{uid}</code>\n"
+                    f"🔑 <b>Password:</b> <code>{password}</code>\n\n"
+                    "⚡ <i>Data and PDF retrieved instantly from your personal chat history without OTPs.</i>"
                 )
-                channel_msg_id = existing_log.get('channel_message_id')
-                channel_id = existing_log.get('channel_id', -1003968368088)
-                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                bot.send_message(chat_id, cached_text, parse_mode='HTML')
+                
+                try:
+                    safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+                    safe_uid = uid.replace(' ', '')
+                    pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
+                    if os.path.exists(pdf_path):
+                        with open(pdf_path, 'rb') as f:
+                            bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
+                except Exception as e_pdf:
+                    print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
+                    
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
@@ -1613,20 +1660,36 @@ def handle_all(message):
     if state.get('step') == 'AWAITING_EID_INPUT':
         eid_num = text.strip()
         if len(eid_num) >= 10:
-            existing_log = db_module.find_user_pdf_log(chat_id, eid_num)
-            if existing_log and existing_log.get('channel_message_id'):
-                print(f"⚡ [PER-USER PDF CACHE HIT] User {chat_id} re-entered EID {eid_num}. Resending PDF...")
-                bot.send_message(
-                    chat_id,
-                    f"<b>{BOT_NAME}</b>\n{DIVIDER}\n"
-                    f"<b>〔 Instant Retrieval (Your History) ✓ 〕</b>\n\n"
-                    f"<i>◈  You have already downloaded this document before.\n"
-                    f"◈  Resending your PDF directly from your chat history…</i>",
-                    parse_mode='HTML'
+            existing_record = db_module.find_user_cracked_record(chat_id, eid_num)
+            if existing_record:
+                if stats_manager.get_bot_mode() == "paid":
+                    stats_manager.deduct_user_credit(chat_id)
+                    
+                name = existing_record.get("name", "N/A")
+                uid = existing_record.get("uid", "N/A")
+                password = existing_record.get("password", "N/A")
+                eid = existing_record.get("eid", "N/A")
+                
+                cached_text = (
+                    "🎉 <b>Record Found in Your History! (Instant Retrieval)</b>\n\n"
+                    f"👤 <b>Name:</b> <code>{name}</code>\n"
+                    f"📞 <b>EID:</b> <code>{eid_num}</code>\n"
+                    f"🔢 <b>Aadhaar Number:</b> <code>{uid}</code>\n"
+                    f"🔑 <b>Password:</b> <code>{password}</code>\n\n"
+                    "⚡ <i>Data and PDF retrieved instantly from your personal chat history without OTPs.</i>"
                 )
-                channel_msg_id = existing_log.get('channel_message_id')
-                channel_id = existing_log.get('channel_id', -1003968368088)
-                db_module.copy_message(chat_id, channel_id, channel_msg_id)
+                bot.send_message(chat_id, cached_text, parse_mode='HTML')
+                
+                try:
+                    safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip().replace(' ', '_')
+                    safe_uid = uid.replace(' ', '')
+                    pdf_path = os.path.join(aadhaar_engine.CRACKED_DIR, f"{safe_name}_{safe_uid}.pdf")
+                    if os.path.exists(pdf_path):
+                        with open(pdf_path, 'rb') as f:
+                            bot.send_document(chat_id, f, caption=f"📄 <b>Aadhaar PDF (Unlocked)</b>")
+                except Exception as e_pdf:
+                    print(f"⚠️ [CACHE] Failed to send cached PDF: {e_pdf}")
+                    
                 user_states[chat_id] = {'step': 'IDLE'}
                 send_welcome_dashboard(chat_id)
                 return
