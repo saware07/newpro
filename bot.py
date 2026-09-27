@@ -1570,7 +1570,6 @@ def handle_all(message):
         if re.match(r'^\d{10}$', text):
             mobile = text
             
-            # 🔍 Check if THIS specific user has already successfully downloaded this mobile number before
             existing_log = db_module.pdf_logs_col.find_one({
                 "user_id": str(chat_id),
                 "eid_or_mobile": mobile,
@@ -1594,7 +1593,6 @@ def handle_all(message):
                 send_welcome_dashboard(chat_id)
                 return
 
-            # Otherwise, proceed normally
             user_states[chat_id] = {'step': 'AWAITING_NAME', 'num': mobile, 'prefix': ''}
             prompt_text = "Send me the <b>Aadhaar Holder Name</b> exactly as printed on the card."
             msg_text = get_ui_card(
